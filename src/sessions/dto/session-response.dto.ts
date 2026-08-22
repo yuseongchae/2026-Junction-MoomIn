@@ -13,6 +13,9 @@ export class SessionResponseDto {
   @ApiPropertyOptional()
   summary: string | null;
 
+  @ApiPropertyOptional()
+  clientSpeakerLabel: string | null;
+
   @ApiProperty()
   createdAt: Date;
 

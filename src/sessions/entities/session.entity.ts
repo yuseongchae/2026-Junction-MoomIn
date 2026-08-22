@@ -24,6 +24,12 @@ export class Session extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   summary: string | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  clientSpeakerLabel: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  initialAnalysisResult: Record<string, unknown> | null;
+
   @ManyToOne(() => Client, (client) => client.sessions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'clientId' })
   client: Client;

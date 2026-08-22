@@ -1,5 +1,10 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { AgentService } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
 import { Session } from '@/sessions/entities/session.entity';
 import { SessionsService } from '@/sessions/sessions.service';
@@ -12,6 +17,7 @@ describe('SessionsService', () => {
   let service: SessionsService;
   let sessionsRepository: MockRepository<Session>;
   let clientsRepository: MockRepository<Client>;
+  let agentService: Partial<Record<keyof AgentService, jest.Mock>>;
 
   beforeEach(() => {
     sessionsRepository = {
@@ -25,10 +31,15 @@ describe('SessionsService', () => {
     clientsRepository = {
       findOneBy: jest.fn(),
     };
+    agentService = {
+      analyzeDocumentToJson: jest.fn(),
+      extractClientOnlyTranscript: jest.fn(),
+    };
 
     service = new SessionsService(
       sessionsRepository as unknown as Repository<Session>,
       clientsRepository as unknown as Repository<Client>,
+      agentService as unknown as AgentService,
     );
   });
 
@@ -42,12 +53,15 @@ describe('SessionsService', () => {
       clientId: 'client-id',
       sessionDate: new Date(sessionDate),
       summary: '초기 상담',
+      clientSpeakerLabel: null,
+      initialAnalysisResult: null,
     });
     sessionsRepository.save!.mockResolvedValue({
       id: 'session-id',
       clientId: 'client-id',
       sessionDate: new Date(sessionDate),
       summary: '초기 상담',
+      clientSpeakerLabel: null,
       createdAt,
       updatedAt,
     });
@@ -62,6 +76,7 @@ describe('SessionsService', () => {
       clientId: 'client-id',
       sessionDate: new Date(sessionDate),
       summary: '초기 상담',
+      clientSpeakerLabel: null,
       createdAt,
       updatedAt,
     });
@@ -96,9 +111,175 @@ describe('SessionsService', () => {
         clientId: 'client-id',
         sessionDate: new Date('2026-08-22T10:00:00.000Z'),
         summary: '초기 상담',
+        clientSpeakerLabel: null,
         createdAt: new Date('2026-08-22T10:00:00.000Z'),
         updatedAt: new Date('2026-08-22T10:00:00.000Z'),
       },
     ]);
+  });
+
+  it('stores first analysis result and returns available speakers', async () => {
+    const session = {
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: null,
+      clientSpeakerLabel: null,
+    } as Session;
+    const analysisResult = {
+      speakers: ['A', 'B'],
+      transcript: [
+        { speakerLabel: 'A', utteranceText: '오늘 어땠나요?' },
+        { speakerLabel: 'B', utteranceText: '잘 잤습니다.' },
+      ],
+    };
+
+    sessionsRepository.findOneBy!.mockResolvedValue(session);
+    agentService.analyzeDocumentToJson!.mockResolvedValue(analysisResult);
+    sessionsRepository.merge!.mockReturnValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: null,
+    });
+    sessionsRepository.save!.mockResolvedValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: null,
+    });
+
+    await expect(
+      service.analyzeSessionDocument('session-id', {
+        buffer: Buffer.from('transcript'),
+        originalname: 'transcript.txt',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-id',
+      status: 'completed',
+      availableSpeakerLabels: ['A', 'B'],
+      analysisResult,
+    });
+  });
+
+  it('rejects speaker selection when first analysis is missing', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: null,
+      clientSpeakerLabel: null,
+    });
+
+    await expect(
+      service.selectClientSpeaker('session-id', {
+        clientSpeakerLabel: 'B',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects speaker selection when the speaker label is absent', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: {
+        speakers: ['A', 'B'],
+      },
+      clientSpeakerLabel: null,
+    });
+
+    await expect(
+      service.selectClientSpeaker('session-id', {
+        clientSpeakerLabel: 'C',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns only the selected client utterances after agent extraction', async () => {
+    const session = {
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: {
+        speakers: ['A', 'B'],
+        transcript: [
+          { speakerLabel: 'A', utteranceText: '오늘 어땠나요?' },
+          { speakerLabel: 'B', utteranceText: '잘 잤습니다.' },
+        ],
+      },
+      clientSpeakerLabel: null,
+    } as unknown as Session;
+
+    sessionsRepository.findOneBy!.mockResolvedValue(session);
+    sessionsRepository.merge!.mockReturnValue({
+      ...session,
+      clientSpeakerLabel: 'B',
+    });
+    sessionsRepository.save!.mockResolvedValue({
+      ...session,
+      clientSpeakerLabel: 'B',
+    });
+    agentService.extractClientOnlyTranscript!.mockResolvedValue({
+      clientSpeakerLabel: 'B',
+      clientUtterances: [
+        {
+          page: 1,
+          turnIndex: 2,
+          speakerLabel: 'B',
+          utteranceText: '잘 잤습니다.',
+          timestampOriginal: '00:04',
+        },
+      ],
+    });
+
+    await expect(
+      service.selectClientSpeaker('session-id', {
+        clientSpeakerLabel: 'B',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-id',
+      clientSpeakerLabel: 'B',
+      status: 'completed',
+      clientUtterances: [
+        {
+          page: 1,
+          turnIndex: 2,
+          speakerLabel: 'B',
+          utteranceText: '잘 잤습니다.',
+          timestampOriginal: '00:04',
+        },
+      ],
+    });
+  });
+
+  it('rejects mixed-speaker utterances from the agent', async () => {
+    const session = {
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: {
+        speakers: ['A', 'B'],
+      },
+      clientSpeakerLabel: null,
+    } as unknown as Session;
+
+    sessionsRepository.findOneBy!.mockResolvedValue(session);
+    sessionsRepository.merge!.mockReturnValue({
+      ...session,
+      clientSpeakerLabel: 'B',
+    });
+    sessionsRepository.save!.mockResolvedValue({
+      ...session,
+      clientSpeakerLabel: 'B',
+    });
+    agentService.extractClientOnlyTranscript!.mockResolvedValue({
+      clientSpeakerLabel: 'B',
+      clientUtterances: [
+        {
+          speakerLabel: 'A',
+          utteranceText: '오늘 어땠나요?',
+        },
+      ],
+    });
+
+    await expect(
+      service.selectClientSpeaker('session-id', {
+        clientSpeakerLabel: 'B',
+      }),
+    ).rejects.toBeInstanceOf(BadGatewayException);
   });
 });

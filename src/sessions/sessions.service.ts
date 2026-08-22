@@ -1,9 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  AgentService,
+  UploadedDocumentFile,
+} from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
+import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
 import { CreateSessionDto } from '@/sessions/dto/create-session.dto';
+import { SessionAnalysisResponseDto } from '@/sessions/dto/session-analysis-response.dto';
 import { SessionResponseDto } from '@/sessions/dto/session-response.dto';
+import { SelectClientSpeakerDto } from '@/sessions/dto/select-client-speaker.dto';
 import { UpdateSessionDto } from '@/sessions/dto/update-session.dto';
 import { Session } from '@/sessions/entities/session.entity';
 
@@ -14,6 +26,7 @@ export class SessionsService {
     private readonly sessionsRepository: Repository<Session>,
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    private readonly agentService: AgentService,
   ) {}
 
   async create(
@@ -28,6 +41,8 @@ export class SessionsService {
         ? new Date(createSessionDto.sessionDate)
         : null,
       summary: createSessionDto.summary ?? null,
+      clientSpeakerLabel: null,
+      initialAnalysisResult: null,
     });
     const savedSession = await this.sessionsRepository.save(session);
 
@@ -49,6 +64,94 @@ export class SessionsService {
     const session = await this.findEntityOrThrow(id);
 
     return this.toResponse(session);
+  }
+
+  async analyzeSessionDocument(
+    id: string,
+    file: UploadedDocumentFile | undefined,
+  ): Promise<SessionAnalysisResponseDto> {
+    const session = await this.findEntityOrThrow(id);
+    const analysisResult = await this.agentService.analyzeDocumentToJson(file);
+    const availableSpeakerLabels = this.collectSpeakerLabels(analysisResult);
+
+    if (!availableSpeakerLabels.length) {
+      throw new BadGatewayException(
+        'Agent analysis did not include identifiable speaker labels',
+      );
+    }
+
+    const updatedSession = this.sessionsRepository.merge(session, {
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: null,
+    });
+    await this.sessionsRepository.save(updatedSession);
+
+    return {
+      sessionId: updatedSession.id,
+      status: 'completed',
+      availableSpeakerLabels,
+      analysisResult,
+    };
+  }
+
+  async selectClientSpeaker(
+    id: string,
+    selectClientSpeakerDto: SelectClientSpeakerDto,
+  ): Promise<ClientSpeakerSelectionResponseDto> {
+    const session = await this.findEntityOrThrow(id);
+
+    if (!session.initialAnalysisResult) {
+      throw new BadRequestException(
+        'First analysis has not completed for this session',
+      );
+    }
+
+    const selectedSpeakerLabel =
+      selectClientSpeakerDto.clientSpeakerLabel.trim();
+    const availableSpeakerLabels = this.collectSpeakerLabels(
+      session.initialAnalysisResult,
+    );
+
+    if (!availableSpeakerLabels.includes(selectedSpeakerLabel)) {
+      throw new BadRequestException(
+        'Selected speaker was not found in the analyzed transcript',
+      );
+    }
+
+    const updatedSession = this.sessionsRepository.merge(session, {
+      clientSpeakerLabel: selectedSpeakerLabel,
+    });
+    await this.sessionsRepository.save(updatedSession);
+
+    const clientTranscript = await this.agentService.extractClientOnlyTranscript(
+      {
+        analysisContext: session.initialAnalysisResult,
+        clientSpeakerLabel: selectedSpeakerLabel,
+      },
+    );
+
+    if (clientTranscript.clientSpeakerLabel !== selectedSpeakerLabel) {
+      throw new BadGatewayException(
+        'Agent returned a different client speaker label',
+      );
+    }
+
+    if (
+      clientTranscript.clientUtterances.some(
+        (utterance) => utterance.speakerLabel !== selectedSpeakerLabel,
+      )
+    ) {
+      throw new BadGatewayException(
+        'Agent returned utterances for speakers other than the selected client',
+      );
+    }
+
+    return {
+      sessionId: updatedSession.id,
+      clientSpeakerLabel: selectedSpeakerLabel,
+      status: 'completed',
+      clientUtterances: clientTranscript.clientUtterances,
+    };
   }
 
   async update(
@@ -104,8 +207,64 @@ export class SessionsService {
       clientId: session.clientId,
       sessionDate: session.sessionDate,
       summary: session.summary,
+      clientSpeakerLabel: session.clientSpeakerLabel ?? null,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };
+  }
+
+  private collectSpeakerLabels(analysisResult: Record<string, unknown>): string[] {
+    const speakerLabels = new Set<string>();
+
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+
+      if (!value || typeof value !== 'object') {
+        return;
+      }
+
+      const record = value as Record<string, unknown>;
+
+      if (
+        typeof record.speakerLabel === 'string' &&
+        record.speakerLabel.trim()
+      ) {
+        speakerLabels.add(record.speakerLabel.trim());
+      }
+
+      if (Array.isArray(record.speakers)) {
+        for (const speaker of record.speakers) {
+          if (typeof speaker === 'string' && speaker.trim()) {
+            speakerLabels.add(speaker.trim());
+            continue;
+          }
+
+          if (!speaker || typeof speaker !== 'object') {
+            continue;
+          }
+
+          const rawSpeaker = speaker as Record<string, unknown>;
+
+          for (const candidate of [
+            rawSpeaker.speakerLabel,
+            rawSpeaker.speaker,
+            rawSpeaker.name,
+          ]) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+              speakerLabels.add(candidate.trim());
+            }
+          }
+        }
+      }
+
+      Object.values(record).forEach(visit);
+    };
+
+    visit(analysisResult);
+
+    return [...speakerLabels];
   }
 }

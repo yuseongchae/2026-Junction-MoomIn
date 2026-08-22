@@ -19,10 +19,25 @@ const UPSTAGE_AGENT_BASE_URL = 'https://api.upstage.ai/v2';
 const POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_ATTEMPTS = 60;
 
-type UploadedDocumentFile = {
+export type UploadedDocumentFile = {
   buffer: Buffer;
   originalname: string;
   mimetype?: string;
+};
+
+type JsonObject = Record<string, unknown>;
+
+export type ClientOnlyTranscriptUtterance = {
+  page?: number;
+  turnIndex?: number;
+  speakerLabel: string;
+  utteranceText: string;
+  timestampOriginal?: string;
+};
+
+export type ClientOnlyTranscriptResult = {
+  clientSpeakerLabel: string;
+  clientUtterances: ClientOnlyTranscriptUtterance[];
 };
 
 @Injectable()
@@ -32,24 +47,42 @@ export class AgentService {
   async analyzeDocument(
     file: UploadedDocumentFile | undefined,
   ): Promise<AgentAnalyzeResponseDto> {
+    const completedResponse = await this.analyzeFile(file);
+
+    return this.toResponseDto(completedResponse);
+  }
+
+  async analyzeDocumentToJson(
+    file: UploadedDocumentFile | undefined,
+  ): Promise<JsonObject> {
+    const completedResponse = await this.analyzeFile(file);
+
+    return this.parseJsonOutput(completedResponse);
+  }
+
+  async extractClientOnlyTranscript(params: {
+    analysisContext: JsonObject;
+    clientSpeakerLabel: string;
+  }): Promise<ClientOnlyTranscriptResult> {
+    const completedResponse = await this.runTextPrompt(
+      this.buildClientTranscriptExtractionPrompt(
+        params.analysisContext,
+        params.clientSpeakerLabel,
+      ),
+    );
+    const parsedResponse = this.parseJsonOutput(completedResponse);
+
+    return this.toClientOnlyTranscriptResult(parsedResponse);
+  }
+
+  private async analyzeFile(
+    file: UploadedDocumentFile | undefined,
+  ): Promise<OpenAI.Responses.Response> {
     if (!file) {
       throw new BadRequestException('file is required');
     }
 
-    const agentId = this.configService.get<string>('AGENT_ID');
-    const agentApiKey = this.configService.get<string>('AGENT_API_KEY');
-
-    if (!agentId || !agentApiKey) {
-      throw new InternalServerErrorException(
-        'Agent integration is not configured',
-      );
-    }
-
-    const client = new OpenAI({
-      apiKey: agentApiKey,
-      baseURL: UPSTAGE_AGENT_BASE_URL,
-    });
-
+    const { agentId, client } = this.createAgentClient();
     let uploadedFileId: string | null = null;
 
     try {
@@ -85,7 +118,7 @@ export class AgentService {
         response.id,
       );
 
-      return this.toResponseDto(completedResponse);
+      return completedResponse;
     } catch (error) {
       return this.handleAgentError(error);
     } finally {
@@ -93,6 +126,50 @@ export class AgentService {
         await client.files.delete(uploadedFileId).catch(() => undefined);
       }
     }
+  }
+
+  private async runTextPrompt(prompt: string): Promise<OpenAI.Responses.Response> {
+    const { agentId, client } = this.createAgentClient();
+
+    try {
+      const response = await client.responses.create({
+        model: agentId,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      });
+
+      return await this.pollUntilFinished(client, response.id);
+    } catch (error) {
+      return this.handleAgentError(error);
+    }
+  }
+
+  private createAgentClient(): { agentId: string; client: OpenAI } {
+    const agentId = this.configService.get<string>('AGENT_ID');
+    const agentApiKey = this.configService.get<string>('AGENT_API_KEY');
+
+    if (!agentId || !agentApiKey) {
+      throw new InternalServerErrorException(
+        'Agent integration is not configured',
+      );
+    }
+
+    return {
+      agentId,
+      client: new OpenAI({
+        apiKey: agentApiKey,
+        baseURL: UPSTAGE_AGENT_BASE_URL,
+      }),
+    };
   }
 
   private async pollUntilFinished(
@@ -137,6 +214,154 @@ export class AgentService {
         ) ?? undefined,
       error: failureMessage as Record<string, unknown> | string | undefined,
     };
+  }
+
+  private parseJsonOutput(response: OpenAI.Responses.Response): JsonObject {
+    const outputText = this.extractOutputText(response);
+
+    try {
+      const parsed = JSON.parse(outputText) as unknown;
+
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new BadGatewayException('Agent response JSON must be an object');
+      }
+
+      return parsed as JsonObject;
+    } catch (error) {
+      if (error instanceof BadGatewayException) {
+        throw error;
+      }
+
+      throw new BadGatewayException('Failed to parse Agent response JSON');
+    }
+  }
+
+  private extractOutputText(response: OpenAI.Responses.Response): string {
+    const outputItems =
+      (response.output as unknown as Array<Record<string, unknown>>) ?? [];
+
+    for (const outputItem of outputItems) {
+      const contents = outputItem.content;
+
+      if (!Array.isArray(contents)) {
+        continue;
+      }
+
+      for (const contentItem of contents) {
+        if (!contentItem || typeof contentItem !== 'object') {
+          continue;
+        }
+
+        const rawContentItem = contentItem as Record<string, unknown>;
+
+        if (
+          rawContentItem.type === 'output_text' &&
+          typeof rawContentItem.text === 'string'
+        ) {
+          return rawContentItem.text;
+        }
+      }
+    }
+
+    throw new BadGatewayException(
+      'Agent response did not include JSON text output',
+    );
+  }
+
+  private buildClientTranscriptExtractionPrompt(
+    analysisContext: JsonObject,
+    clientSpeakerLabel: string,
+  ): string {
+    return [
+      'You will receive the completed first-pass transcript analysis for a counseling session.',
+      `The counselor selected "${clientSpeakerLabel}" as the client speaker.`,
+      'Return JSON only. Do not wrap the JSON in markdown.',
+      'Extract ONLY the utterances spoken by the selected client speaker.',
+      'Do not include utterances from any other speaker.',
+      'Do not summarize, paraphrase, normalize, or rewrite the transcript text.',
+      'Preserve original metadata when available: page, turnIndex, speakerLabel, utteranceText, timestampOriginal.',
+      'Respond with exactly this JSON shape:',
+      '{"clientSpeakerLabel":"string","clientUtterances":[{"page":1,"turnIndex":2,"speakerLabel":"string","utteranceText":"string","timestampOriginal":"string"}]}',
+      'First-pass analysis JSON:',
+      JSON.stringify(analysisContext),
+    ].join('\n\n');
+  }
+
+  private toClientOnlyTranscriptResult(
+    parsedResponse: JsonObject,
+  ): ClientOnlyTranscriptResult {
+    const clientSpeakerLabel = parsedResponse.clientSpeakerLabel;
+    const clientUtterances = parsedResponse.clientUtterances;
+
+    if (
+      typeof clientSpeakerLabel !== 'string' ||
+      !clientSpeakerLabel.trim() ||
+      !Array.isArray(clientUtterances)
+    ) {
+      throw new BadGatewayException(
+        'Agent returned an invalid client transcript structure',
+      );
+    }
+
+    return {
+      clientSpeakerLabel: clientSpeakerLabel.trim(),
+      clientUtterances: clientUtterances.map((utterance) =>
+        this.toClientOnlyTranscriptUtterance(utterance),
+      ),
+    };
+  }
+
+  private toClientOnlyTranscriptUtterance(
+    utterance: unknown,
+  ): ClientOnlyTranscriptUtterance {
+    if (!utterance || Array.isArray(utterance) || typeof utterance !== 'object') {
+      throw new BadGatewayException(
+        'Agent returned an invalid client utterance item',
+      );
+    }
+
+    const rawUtterance = utterance as JsonObject;
+    const speakerLabel = rawUtterance.speakerLabel;
+    const utteranceText = rawUtterance.utteranceText;
+
+    if (
+      typeof speakerLabel !== 'string' ||
+      !speakerLabel.trim() ||
+      typeof utteranceText !== 'string' ||
+      !utteranceText.trim()
+    ) {
+      throw new BadGatewayException(
+        'Agent returned an invalid client utterance payload',
+      );
+    }
+
+    const page = this.asOptionalNumber(rawUtterance.page);
+    const turnIndex = this.asOptionalNumber(rawUtterance.turnIndex);
+    const timestampOriginal = this.asOptionalString(rawUtterance.timestampOriginal);
+
+    return {
+      page,
+      turnIndex,
+      speakerLabel: speakerLabel.trim(),
+      utteranceText,
+      timestampOriginal,
+    };
+  }
+
+  private asOptionalNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    return undefined;
+  }
+
+  private asOptionalString(value: unknown): string | undefined {
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+
+    return undefined;
   }
 
   private handleAgentError(error: unknown): never {
