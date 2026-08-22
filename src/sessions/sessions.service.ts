@@ -11,6 +11,7 @@ import { AgentService, UploadedDocumentFile } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
 import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
 import { CreateSessionDto } from '@/sessions/dto/create-session.dto';
+import { KeywordDetailResponseDto } from '@/sessions/dto/keyword-detail-response.dto';
 import { SessionAnalysisResponseDto } from '@/sessions/dto/session-analysis-response.dto';
 import { SessionResponseDto } from '@/sessions/dto/session-response.dto';
 import { SelectClientSpeakerDto } from '@/sessions/dto/select-client-speaker.dto';
@@ -64,6 +65,46 @@ export class SessionsService {
     const session = await this.findEntityOrThrow(id);
 
     return this.toResponse(session);
+  }
+
+  async getKeywordDetail(
+    sessionId: string,
+    keyword: string,
+  ): Promise<KeywordDetailResponseDto> {
+    const session = await this.findEntityOrThrow(sessionId);
+
+    if (!session.initialAnalysisResult) {
+      throw new NotFoundException(
+        `Analysis result for session with id ${sessionId} not found`,
+      );
+    }
+
+    const normalizedKeyword = this.normalizeKeywordParam(keyword);
+    const analysisResult = session.initialAnalysisResult;
+    const keywords = this.getArrayField(analysisResult, [
+      'client_utterance_keywords',
+      'clientUtteranceKeywords',
+    ]);
+    const contexts = this.getArrayField(analysisResult, [
+      'client_keyword_contexts',
+      'clientKeywordContexts',
+    ]);
+
+    const keywordInfo = this.findKeywordInfo(keywords, normalizedKeyword);
+
+    if (!keywordInfo) {
+      throw new NotFoundException(
+        `Keyword ${normalizedKeyword} was not found for session with id ${sessionId}`,
+      );
+    }
+
+    const contextInfo = this.findKeywordContextInfo(contexts, normalizedKeyword);
+
+    return {
+      keyword: normalizedKeyword,
+      count: keywordInfo.count,
+      contexts: contextInfo?.contexts ?? [],
+    };
   }
 
   async analyzeSessionDocument(
@@ -460,5 +501,84 @@ export class SessionsService {
 
   private getNonEmptyString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  }
+
+  private normalizeKeywordParam(keyword: string): string {
+    try {
+      return decodeURIComponent(keyword).trim();
+    } catch {
+      return keyword.trim();
+    }
+  }
+
+  private findKeywordInfo(
+    source: unknown[] | undefined,
+    keyword: string,
+  ): { keyword: string; count: number } | undefined {
+    if (!source) {
+      return undefined;
+    }
+
+    for (const item of source) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+
+      const rawKeyword = item as Record<string, unknown>;
+      const normalizedKeyword = this.getNonEmptyString(rawKeyword.keyword);
+      const count = this.getFiniteNumber(rawKeyword.count);
+
+      if (normalizedKeyword === keyword && count !== undefined) {
+        return {
+          keyword: normalizedKeyword,
+          count,
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private findKeywordContextInfo(
+    source: unknown[] | undefined,
+    keyword: string,
+  ): { keyword: string; contexts: string[] } | undefined {
+    if (!source) {
+      return undefined;
+    }
+
+    for (const item of source) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+
+      const rawContext = item as Record<string, unknown>;
+      const normalizedKeyword = this.getNonEmptyString(rawContext.keyword);
+
+      if (normalizedKeyword !== keyword) {
+        continue;
+      }
+
+      return {
+        keyword: normalizedKeyword,
+        contexts: this.toStringArray(
+          rawContext.contexts ?? rawContext.context_list ?? rawContext.items,
+        ),
+      };
+    }
+
+    return undefined;
+  }
+
+  private toStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.flatMap((item) => {
+      const normalized = this.getNonEmptyString(item);
+
+      return normalized ? [normalized] : [];
+    });
   }
 }

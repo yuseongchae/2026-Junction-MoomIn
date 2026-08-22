@@ -116,6 +116,65 @@ describe('SessionsService', () => {
     ]);
   });
 
+    it('returns keyword detail from stored initial analysis result', async () => {
+      sessionsRepository.findOneBy!.mockResolvedValue({
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          client_utterance_keywords: [
+            { keyword: '과제', count: '6' },
+            { keyword: '생각', count: 3 },
+          ],
+          client_keyword_contexts: [
+            {
+              keyword: '과제',
+              contexts: ['문맥 1', '문맥 2', '문맥 3'],
+            },
+          ],
+        },
+      });
+
+      await expect(
+        service.getKeywordDetail('session-id', encodeURIComponent('과제')),
+      ).resolves.toEqual({
+        keyword: '과제',
+        count: 6,
+        contexts: ['문맥 1', '문맥 2', '문맥 3'],
+      });
+    });
+
+    it('returns keyword detail with empty contexts when only keyword count exists', async () => {
+      sessionsRepository.findOneBy!.mockResolvedValue({
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          clientUtteranceKeywords: [{ keyword: '과제', count: 6 }],
+        },
+      });
+
+      await expect(service.getKeywordDetail('session-id', '과제')).resolves.toEqual(
+        {
+          keyword: '과제',
+          count: 6,
+          contexts: [],
+        },
+      );
+    });
+
+    it('rejects keyword detail lookup when the keyword is missing', async () => {
+      sessionsRepository.findOneBy!.mockResolvedValue({
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          client_utterance_keywords: [{ keyword: '과제', count: 6 }],
+        },
+      });
+
+      await expect(
+        service.getKeywordDetail('session-id', '없는키워드'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
   it('stores first analysis result and returns available speakers', async () => {
     const session = {
       id: 'session-id',

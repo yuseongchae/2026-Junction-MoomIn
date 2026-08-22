@@ -29,6 +29,7 @@ import {
 import { UploadedDocumentFile } from '@/agent/agent.service';
 import { AnalyzeSessionDocumentDto } from '@/sessions/dto/analyze-session-document.dto';
 import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
+import { KeywordDetailResponseDto } from '@/sessions/dto/keyword-detail-response.dto';
 import { SelectClientSpeakerDto } from '@/sessions/dto/select-client-speaker.dto';
 import { SessionAnalysisResponseDto } from '@/sessions/dto/session-analysis-response.dto';
 import { SessionResponseDto } from '@/sessions/dto/session-response.dto';
@@ -49,6 +50,21 @@ export class SessionsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SessionResponseDto> {
     return this.sessionsService.findOne(id);
+  }
+
+  @Get(':sessionId/keywords/:keyword')
+  @ApiOperation({ summary: '세션 분석 결과에서 특정 키워드 상세 조회' })
+  @ApiParam({ name: 'sessionId', format: 'uuid' })
+  @ApiParam({ name: 'keyword', description: '조회할 키워드(URI 인코딩 허용)' })
+  @ApiOkResponse({ type: KeywordDetailResponseDto })
+  @ApiNotFoundResponse({
+    description: '상담 세션 또는 요청한 키워드를 찾을 수 없습니다.',
+  })
+  getKeywordDetail(
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+    @Param('keyword') keyword: string,
+  ): Promise<KeywordDetailResponseDto> {
+    return this.sessionsService.getKeywordDetail(sessionId, keyword);
   }
 
   @Post(':sessionId/analysis')

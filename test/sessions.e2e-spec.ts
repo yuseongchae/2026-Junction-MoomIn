@@ -10,6 +10,7 @@ describe('SessionsController (e2e)', () => {
   let app: INestApplication<App>;
   const sessionsService = {
     findOne: jest.fn(),
+      getKeywordDetail: jest.fn(),
     analyzeSessionDocument: jest.fn(),
     selectClientSpeaker: jest.fn(),
     update: jest.fn(),
@@ -159,6 +160,25 @@ describe('SessionsController (e2e)', () => {
         ],
       });
   });
+
+    it('GET /api/sessions/:sessionId/keywords/:keyword returns keyword detail', async () => {
+      sessionsService.getKeywordDetail.mockResolvedValue({
+        keyword: '과제',
+        count: 6,
+        contexts: ['문맥 1', '문맥 2'],
+      });
+
+      await request(app.getHttpServer())
+        .get(
+          '/api/sessions/11111111-1111-1111-1111-111111111111/keywords/%EA%B3%BC%EC%A0%9C',
+        )
+        .expect(200)
+        .expect({
+          keyword: '과제',
+          count: 6,
+          contexts: ['문맥 1', '문맥 2'],
+        });
+    });
 
   afterEach(async () => {
     await app.close();
