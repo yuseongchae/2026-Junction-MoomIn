@@ -71,7 +71,8 @@ export class SessionsService {
     file: UploadedDocumentFile | undefined,
   ): Promise<SessionAnalysisResponseDto> {
     const session = await this.findEntityOrThrow(id);
-    const analysisResult = await this.agentService.analyzeDocumentToJson(file);
+    const analysisResult =
+      await this.agentService.analyzeSessionTranscriptToJson(file);
     const clientSpeakerLabel = this.getStringField(
       analysisResult,
       'client_speaker_label',

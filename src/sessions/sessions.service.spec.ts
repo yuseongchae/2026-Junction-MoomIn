@@ -32,7 +32,7 @@ describe('SessionsService', () => {
       findOneBy: jest.fn(),
     };
     agentService = {
-      analyzeDocumentToJson: jest.fn(),
+      analyzeSessionTranscriptToJson: jest.fn(),
       extractClientOnlyTranscript: jest.fn(),
     };
 
@@ -135,7 +135,9 @@ describe('SessionsService', () => {
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
-    agentService.analyzeDocumentToJson!.mockResolvedValue(analysisResult);
+    agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
+      analysisResult,
+    );
     sessionsRepository.merge!.mockReturnValue({
       ...session,
       initialAnalysisResult: analysisResult,
@@ -176,7 +178,9 @@ describe('SessionsService', () => {
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
-    agentService.analyzeDocumentToJson!.mockResolvedValue(analysisResult);
+    agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
+      analysisResult,
+    );
     sessionsRepository.merge!.mockReturnValue({
       ...session,
       initialAnalysisResult: analysisResult,

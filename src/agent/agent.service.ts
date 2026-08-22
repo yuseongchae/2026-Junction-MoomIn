@@ -40,6 +40,10 @@ export type ClientOnlyTranscriptResult = {
   clientUtterances: ClientOnlyTranscriptUtterance[];
 };
 
+type AnalyzeFileOptions = {
+  prompt?: string;
+};
+
 @Injectable()
 export class AgentService {
   constructor(private readonly configService: ConfigService) {}
@@ -56,6 +60,16 @@ export class AgentService {
     file: UploadedDocumentFile | undefined,
   ): Promise<JsonObject> {
     const completedResponse = await this.analyzeFile(file);
+
+    return this.parseJsonOutput(completedResponse);
+  }
+
+  async analyzeSessionTranscriptToJson(
+    file: UploadedDocumentFile | undefined,
+  ): Promise<JsonObject> {
+    const completedResponse = await this.analyzeFile(file, {
+      prompt: this.buildFullTranscriptAnalysisPrompt(),
+    });
 
     return this.parseJsonOutput(completedResponse);
   }
@@ -77,6 +91,7 @@ export class AgentService {
 
   private async analyzeFile(
     file: UploadedDocumentFile | undefined,
+    options?: AnalyzeFileOptions,
   ): Promise<OpenAI.Responses.Response> {
     if (!file) {
       throw new BadRequestException('file is required');
@@ -104,6 +119,14 @@ export class AgentService {
           {
             role: 'user',
             content: [
+              ...(options?.prompt
+                ? [
+                    {
+                      type: 'input_text' as const,
+                      text: options.prompt,
+                    },
+                  ]
+                : []),
               {
                 type: 'input_file',
                 file_id: uploadedFile.id,
@@ -239,6 +262,7 @@ export class AgentService {
   private extractOutputText(response: OpenAI.Responses.Response): string {
     const outputItems =
       (response.output as unknown as Array<Record<string, unknown>>) ?? [];
+    const textParts: string[] = [];
 
     for (const outputItem of outputItems) {
       const contents = outputItem.content;
@@ -258,14 +282,33 @@ export class AgentService {
           rawContentItem.type === 'output_text' &&
           typeof rawContentItem.text === 'string'
         ) {
-          return rawContentItem.text;
+          textParts.push(rawContentItem.text);
         }
       }
+    }
+
+    if (textParts.length > 0) {
+      return textParts.join('');
     }
 
     throw new BadGatewayException(
       'Agent response did not include JSON text output',
     );
+  }
+
+  private buildFullTranscriptAnalysisPrompt(): string {
+    return [
+      'Analyze the uploaded counseling transcript and return JSON only.',
+      'Do not wrap the JSON in markdown.',
+      'Return the full transcript extraction, not a summary.',
+      'You must include every utterance from the client speaker in client_utterances.',
+      'You must include every utterance from the counselor speaker in counselor_utterances.',
+      'Do not return representative samples only.',
+      'Do not limit client_utterances or counselor_utterances to 3 items.',
+      'Do not truncate utterance arrays.',
+      'Preserve the original utterance text and source metadata when available.',
+      'Expected keys include: document_type, session_number, counseling_date, counseling_location, client_speaker_label, counselor_speaker_label, client_utterances, counselor_utterances.',
+    ].join('\n\n');
   }
 
   private buildClientTranscriptExtractionPrompt(
