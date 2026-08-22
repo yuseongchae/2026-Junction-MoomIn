@@ -392,25 +392,33 @@ export class AgentService {
   }
 
   private buildClientTranscriptExtractionPrompt(
-    analysisContext: JsonObject,
-    clientSpeakerLabel: string,
-  ): string {
-    void analysisContext;
-    void clientSpeakerLabel;
-
-    return [
-      'Return exactly this JSON and nothing else:',
-      '{',
-      '  "client_utterances": [',
-      '    {',
-      '      "speaker_label": "발화자 2",',
-      '      "utterance_text": "테스트"',
-      '    }',
-      '  ],',
-      '  "counselor_utterances": []',
-      '}',
-    ].join('\n\n');
-  }
+  analysisContext: JsonObject,
+  clientSpeakerLabel: string,
+): string {
+  return [
+    'Analyze the following counseling transcript analysis result.',
+    '',
+    `The client speaker label is "${clientSpeakerLabel}".`,
+    '',
+    'Return JSON only.',
+    'Do not wrap the JSON in markdown.',
+    'Extract every utterance whose speaker_label matches the client speaker label.',
+    '',
+    'Required JSON structure:',
+    '{',
+    '  "client_utterances": [',
+    '    {',
+    '      "speaker_label": "발화자 2",',
+    '      "utterance_text": "..."',
+    '    }',
+    '  ],',
+    '  "counselor_utterances": []',
+    '}',
+    '',
+    'Transcript analysis result:',
+    JSON.stringify(analysisContext),
+  ].join('\n');
+}
 
   private toClientOnlyTranscriptResult(
     parsedResponse: JsonObject,
