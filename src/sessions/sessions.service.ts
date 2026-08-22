@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -18,6 +19,8 @@ import { Session } from '@/sessions/entities/session.entity';
 
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+
   constructor(
     @InjectRepository(Session)
     private readonly sessionsRepository: Repository<Session>,
@@ -93,6 +96,16 @@ export class SessionsService {
       initialAnalysisResult: analysisResult,
       clientSpeakerLabel,
     });
+      this.logger.warn(
+        `=== DB SAVE DATA === ${JSON.stringify({
+          sessionId: session.id,
+          clientSpeakerLabel,
+          clientUtteranceKeywords:
+            analysisResult.client_utterance_keywords ??
+            analysisResult.clientUtteranceKeywords,
+          initialAnalysisResult: analysisResult,
+        })}`,
+      );
     await this.sessionsRepository.save(updatedSession);
 
     return {

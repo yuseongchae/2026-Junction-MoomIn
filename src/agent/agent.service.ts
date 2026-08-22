@@ -82,8 +82,19 @@ export class AgentService {
     const completedResponse = await this.analyzeFile(file, {
       prompt: this.buildFullTranscriptAnalysisPrompt(),
     });
+      this.logger.warn(
+        `=== AGENT RAW RESPONSE === ${JSON.stringify(
+          completedResponse as unknown as Record<string, unknown>,
+        )}`,
+      );
+      const parsedResponse = this.parseJsonOutput(completedResponse);
+      this.logger.warn(
+        `=== CLIENT UTTERANCE KEYWORDS === ${JSON.stringify(
+          this.extractClientUtteranceKeywordsForDebug(parsedResponse),
+        )}`,
+      );
 
-    return this.parseJsonOutput(completedResponse);
+      return parsedResponse;
   }
 
   async extractClientOnlyTranscript(params: {
@@ -129,6 +140,31 @@ export class AgentService {
         purpose: 'user_data',
       });
       uploadedFileId = uploadedFile.id;
+
+      this.logger.warn(
+        `=== AGENT INPUT === ${JSON.stringify({
+          model: agentId,
+          input: [
+            {
+              role: 'user',
+              content: [
+                ...(options?.prompt
+                  ? [
+                      {
+                        type: 'input_text',
+                        text: options.prompt,
+                      },
+                    ]
+                  : []),
+                {
+                  type: 'input_file',
+                  file_id: uploadedFile.id,
+                },
+              ],
+            },
+          ],
+        })}`,
+      );
 
       const response = await client.responses.create({
         model: agentId,
@@ -284,6 +320,7 @@ export class AgentService {
     try {
       const parsed = JSON.parse(normalizedOutputText) as unknown;
       this.logger.warn(`DEBUG parsedResponse: ${JSON.stringify(parsed)}`);
+        this.logger.warn(`=== PARSED RESPONSE === ${JSON.stringify(parsed)}`);
 
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
         throw new BadGatewayException('Agent response JSON must be an object');
@@ -653,6 +690,15 @@ export class AgentService {
     }
 
     return typeof value;
+  }
+
+  private extractClientUtteranceKeywordsForDebug(
+    source: JsonObject,
+  ): unknown[] | undefined {
+    const value =
+      source.client_utterance_keywords ?? source.clientUtteranceKeywords;
+
+    return Array.isArray(value) ? value : undefined;
   }
 
   private asOptionalNumber(value: unknown): number | undefined {
