@@ -77,6 +77,8 @@ describe('SessionsController (e2e)', () => {
       sessionId: '11111111-1111-1111-1111-111111111111',
       clientSpeakerLabel: 'B',
       status: 'completed',
+      clientUtteranceTotalWordCount: 4,
+      clientNameOrInitials: '서연',
       clientUtterances: [
         {
           page: 1,
@@ -93,6 +95,21 @@ describe('SessionsController (e2e)', () => {
           timestampOriginal: '00:14',
         },
       ],
+      counselorUtterances: [
+        {
+          page: 1,
+          turnIndex: 1,
+          speakerLabel: 'A',
+          utteranceText: '오늘 어땠나요?',
+          timestampOriginal: '00:01',
+        },
+      ],
+      clientUtteranceKeywords: [
+        {
+          keyword: '관계',
+          count: 1,
+        },
+      ],
     });
 
     await request(app.getHttpServer())
@@ -100,13 +117,15 @@ describe('SessionsController (e2e)', () => {
         '/api/sessions/11111111-1111-1111-1111-111111111111/speaker-selection',
       )
       .send({
-        speakerLabel: 'B',
+        clientSpeakerLabel: 'B',
       })
       .expect(200)
       .expect({
         sessionId: '11111111-1111-1111-1111-111111111111',
         clientSpeakerLabel: 'B',
         status: 'completed',
+        clientUtteranceTotalWordCount: 4,
+        clientNameOrInitials: '서연',
         clientUtterances: [
           {
             page: 1,
@@ -121,6 +140,21 @@ describe('SessionsController (e2e)', () => {
             speakerLabel: 'B',
             utteranceText: '사이가 요즘은 괜찮아요.',
             timestampOriginal: '00:14',
+          },
+        ],
+        counselorUtterances: [
+          {
+            page: 1,
+            turnIndex: 1,
+            speakerLabel: 'A',
+            utteranceText: '오늘 어땠나요?',
+            timestampOriginal: '00:01',
+          },
+        ],
+        clientUtteranceKeywords: [
+          {
+            keyword: '관계',
+            count: 1,
           },
         ],
       });

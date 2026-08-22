@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class ClientUtteranceDto {
+export class TranscriptUtteranceDto {
   @ApiPropertyOptional({ example: 1 })
   page?: number;
 
@@ -17,6 +17,14 @@ export class ClientUtteranceDto {
   timestampOriginal?: string;
 }
 
+export class ClientUtteranceKeywordDto {
+  @ApiProperty({ example: '과제' })
+  keyword: string;
+
+  @ApiProperty({ example: 6 })
+  count: number;
+}
+
 export class ClientSpeakerSelectionResponseDto {
   @ApiProperty({ format: 'uuid' })
   sessionId: string;
@@ -27,6 +35,24 @@ export class ClientSpeakerSelectionResponseDto {
   @ApiProperty({ example: 'completed' })
   status: string;
 
-  @ApiProperty({ type: ClientUtteranceDto, isArray: true })
-  clientUtterances: ClientUtteranceDto[];
+  @ApiProperty({ type: TranscriptUtteranceDto, isArray: true })
+  clientUtterances: TranscriptUtteranceDto[];
+
+  @ApiPropertyOptional({ example: 120 })
+  clientUtteranceTotalWordCount?: number;
+
+  @ApiPropertyOptional({ example: '서연' })
+  clientNameOrInitials?: string;
+
+  @ApiProperty({
+    type: TranscriptUtteranceDto,
+    isArray: true,
+  })
+  counselorUtterances: TranscriptUtteranceDto[];
+
+  @ApiProperty({
+    type: ClientUtteranceKeywordDto,
+    isArray: true,
+  })
+  clientUtteranceKeywords: ClientUtteranceKeywordDto[];
 }

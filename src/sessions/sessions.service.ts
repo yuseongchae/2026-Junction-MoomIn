@@ -6,10 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  AgentService,
-  UploadedDocumentFile,
-} from '@/agent/agent.service';
+import { AgentService, UploadedDocumentFile } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
 import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
 import { CreateSessionDto } from '@/sessions/dto/create-session.dto';
@@ -146,12 +143,11 @@ export class SessionsService {
     });
     await this.sessionsRepository.save(updatedSession);
 
-    const clientTranscript = await this.agentService.extractClientOnlyTranscript(
-      {
+    const clientTranscript =
+      await this.agentService.extractClientOnlyTranscript({
         analysisContext: session.initialAnalysisResult,
         clientSpeakerLabel: selectedSpeakerLabel,
-      },
-    );
+      });
 
     if (clientTranscript.clientSpeakerLabel !== selectedSpeakerLabel) {
       throw new BadGatewayException(
@@ -174,6 +170,11 @@ export class SessionsService {
       clientSpeakerLabel: selectedSpeakerLabel,
       status: 'completed',
       clientUtterances: clientTranscript.clientUtterances,
+      clientUtteranceTotalWordCount:
+        clientTranscript.clientUtteranceTotalWordCount,
+      clientNameOrInitials: clientTranscript.clientNameOrInitials,
+      counselorUtterances: clientTranscript.counselorUtterances,
+      clientUtteranceKeywords: clientTranscript.clientUtteranceKeywords,
     };
   }
 

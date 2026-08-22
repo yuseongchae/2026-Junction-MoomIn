@@ -35,9 +35,18 @@ export type ClientOnlyTranscriptUtterance = {
   timestampOriginal?: string;
 };
 
+export type ClientUtteranceKeyword = {
+  keyword: string;
+  count: number;
+};
+
 export type ClientOnlyTranscriptResult = {
   clientSpeakerLabel: string;
   clientUtterances: ClientOnlyTranscriptUtterance[];
+  counselorUtterances: ClientOnlyTranscriptUtterance[];
+  clientUtteranceKeywords: ClientUtteranceKeyword[];
+  clientUtteranceTotalWordCount?: number;
+  clientNameOrInitials?: string;
 };
 
 type AnalyzeFileOptions = {
@@ -86,7 +95,12 @@ export class AgentService {
     );
     const parsedResponse = this.parseJsonOutput(completedResponse);
 
-    return this.toClientOnlyTranscriptResult(parsedResponse);
+    return this.toClientOnlyTranscriptResult(parsedResponse, {
+      clientSpeakerLabel: params.clientSpeakerLabel,
+      counselorSpeakerLabel: this.asOptionalString(
+        params.analysisContext.counselor_speaker_label,
+      ),
+    });
   }
 
   private async analyzeFile(
@@ -151,7 +165,9 @@ export class AgentService {
     }
   }
 
-  private async runTextPrompt(prompt: string): Promise<OpenAI.Responses.Response> {
+  private async runTextPrompt(
+    prompt: string,
+  ): Promise<OpenAI.Responses.Response> {
     const { agentId, client } = this.createAgentClient();
 
     try {
@@ -320,11 +336,12 @@ export class AgentService {
       `The counselor selected "${clientSpeakerLabel}" as the client speaker.`,
       'Return JSON only. Do not wrap the JSON in markdown.',
       'Extract ONLY the utterances spoken by the selected client speaker.',
-      'Do not include utterances from any other speaker.',
+      'Also include the counselor utterances separately in counselor_utterances.',
       'Do not summarize, paraphrase, normalize, or rewrite the transcript text.',
-      'Preserve original metadata when available: page, turnIndex, speakerLabel, utteranceText, timestampOriginal.',
+      'Use snake_case field names in the JSON response.',
+      'Preserve original metadata when available: page, turn_index, speaker_label, utterance_text, timestamp_original.',
       'Respond with exactly this JSON shape:',
-      '{"clientSpeakerLabel":"string","clientUtterances":[{"page":1,"turnIndex":2,"speakerLabel":"string","utteranceText":"string","timestampOriginal":"string"}]}',
+      '{"client_speaker_label":"string","counselor_speaker_label":"string","client_name_or_initials":"string","client_utterance_total_word_count":1,"client_utterances":[{"page":1,"turn_index":2,"speaker_label":"string","utterance_text":"string","timestamp_original":"string"}],"counselor_utterances":[{"page":1,"turn_index":1,"speaker_label":"string","utterance_text":"string","timestamp_original":"string"}],"client_utterance_keywords":[{"keyword":"string","count":1}]}',
       'First-pass analysis JSON:',
       JSON.stringify(analysisContext),
     ].join('\n\n');
@@ -332,40 +349,73 @@ export class AgentService {
 
   private toClientOnlyTranscriptResult(
     parsedResponse: JsonObject,
+    fallback: {
+      clientSpeakerLabel: string;
+      counselorSpeakerLabel?: string;
+    },
   ): ClientOnlyTranscriptResult {
-    const clientSpeakerLabel = parsedResponse.clientSpeakerLabel;
-    const clientUtterances = parsedResponse.clientUtterances;
+    const clientSpeakerLabel =
+      this.asOptionalString(parsedResponse.client_speaker_label) ??
+      fallback.clientSpeakerLabel;
+    const counselorSpeakerLabel =
+      this.asOptionalString(parsedResponse.counselor_speaker_label) ??
+      fallback.counselorSpeakerLabel;
+    const clientUtterances = parsedResponse.client_utterances;
+    const counselorUtterances = parsedResponse.counselor_utterances;
 
-    if (
-      typeof clientSpeakerLabel !== 'string' ||
-      !clientSpeakerLabel.trim() ||
-      !Array.isArray(clientUtterances)
-    ) {
+    if (!Array.isArray(clientUtterances)) {
       throw new BadGatewayException(
         'Agent returned an invalid client transcript structure',
       );
     }
 
     return {
-      clientSpeakerLabel: clientSpeakerLabel.trim(),
+      clientSpeakerLabel,
       clientUtterances: clientUtterances.map((utterance) =>
-        this.toClientOnlyTranscriptUtterance(utterance),
+        this.toClientOnlyTranscriptUtterance(utterance, clientSpeakerLabel),
+      ),
+      counselorUtterances: Array.isArray(counselorUtterances)
+        ? counselorUtterances.map((utterance) =>
+            this.toClientOnlyTranscriptUtterance(
+              utterance,
+              counselorSpeakerLabel,
+            ),
+          )
+        : [],
+      clientUtteranceKeywords: this.toClientUtteranceKeywords(
+        parsedResponse.client_utterance_keywords,
+      ),
+      clientUtteranceTotalWordCount: this.asOptionalNumber(
+        parsedResponse.client_utterance_total_word_count,
+      ),
+      clientNameOrInitials: this.asOptionalString(
+        parsedResponse.client_name_or_initials,
       ),
     };
   }
 
   private toClientOnlyTranscriptUtterance(
     utterance: unknown,
+    fallbackSpeakerLabel?: string,
   ): ClientOnlyTranscriptUtterance {
-    if (!utterance || Array.isArray(utterance) || typeof utterance !== 'object') {
+    if (
+      !utterance ||
+      Array.isArray(utterance) ||
+      typeof utterance !== 'object'
+    ) {
       throw new BadGatewayException(
         'Agent returned an invalid client utterance item',
       );
     }
 
     const rawUtterance = utterance as JsonObject;
-    const speakerLabel = rawUtterance.speakerLabel;
-    const utteranceText = rawUtterance.utteranceText;
+    const speakerLabel =
+      this.asOptionalString(rawUtterance.speaker_label) ??
+      this.asOptionalString(rawUtterance.speakerLabel) ??
+      fallbackSpeakerLabel;
+    const utteranceText =
+      this.asOptionalString(rawUtterance.utterance_text) ??
+      this.asOptionalString(rawUtterance.utteranceText);
 
     if (
       typeof speakerLabel !== 'string' ||
@@ -379,8 +429,12 @@ export class AgentService {
     }
 
     const page = this.asOptionalNumber(rawUtterance.page);
-    const turnIndex = this.asOptionalNumber(rawUtterance.turnIndex);
-    const timestampOriginal = this.asOptionalString(rawUtterance.timestampOriginal);
+    const turnIndex =
+      this.asOptionalNumber(rawUtterance.turn_index) ??
+      this.asOptionalNumber(rawUtterance.turnIndex);
+    const timestampOriginal =
+      this.asOptionalString(rawUtterance.timestamp_original) ??
+      this.asOptionalString(rawUtterance.timestampOriginal);
 
     return {
       page,
@@ -389,6 +443,35 @@ export class AgentService {
       utteranceText,
       timestampOriginal,
     };
+  }
+
+  private toClientUtteranceKeywords(value: unknown): ClientUtteranceKeyword[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.map((item) => {
+      if (!item || Array.isArray(item) || typeof item !== 'object') {
+        throw new BadGatewayException(
+          'Agent returned an invalid client keyword item',
+        );
+      }
+
+      const rawItem = item as JsonObject;
+      const keyword = this.asOptionalString(rawItem.keyword);
+      const count = this.asOptionalNumber(rawItem.count);
+
+      if (!keyword || count === undefined) {
+        throw new BadGatewayException(
+          'Agent returned an invalid client keyword payload',
+        );
+      }
+
+      return {
+        keyword,
+        count,
+      };
+    });
   }
 
   private asOptionalNumber(value: unknown): number | undefined {

@@ -217,7 +217,7 @@ describe('SessionsService', () => {
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        speakerLabel: 'B',
+        clientSpeakerLabel: 'B',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -235,7 +235,7 @@ describe('SessionsService', () => {
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        speakerLabel: 'C',
+        clientSpeakerLabel: 'C',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -275,11 +275,28 @@ describe('SessionsService', () => {
           timestampOriginal: '00:04',
         },
       ],
+      counselorUtterances: [
+        {
+          page: 1,
+          turnIndex: 1,
+          speakerLabel: 'A',
+          utteranceText: '오늘 어땠나요?',
+          timestampOriginal: '00:01',
+        },
+      ],
+      clientUtteranceKeywords: [
+        {
+          keyword: '수면',
+          count: 1,
+        },
+      ],
+      clientUtteranceTotalWordCount: 3,
+      clientNameOrInitials: '서연',
     });
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        speakerLabel: 'B',
+        clientSpeakerLabel: 'B',
       }),
     ).resolves.toEqual({
       sessionId: 'session-id',
@@ -292,6 +309,23 @@ describe('SessionsService', () => {
           speakerLabel: 'B',
           utteranceText: '잘 잤습니다.',
           timestampOriginal: '00:04',
+        },
+      ],
+      clientUtteranceTotalWordCount: 3,
+      clientNameOrInitials: '서연',
+      counselorUtterances: [
+        {
+          page: 1,
+          turnIndex: 1,
+          speakerLabel: 'A',
+          utteranceText: '오늘 어땠나요?',
+          timestampOriginal: '00:01',
+        },
+      ],
+      clientUtteranceKeywords: [
+        {
+          keyword: '수면',
+          count: 1,
         },
       ],
     });
@@ -325,11 +359,13 @@ describe('SessionsService', () => {
           utteranceText: '오늘 어땠나요?',
         },
       ],
+      counselorUtterances: [],
+      clientUtteranceKeywords: [],
     });
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        speakerLabel: 'B',
+        clientSpeakerLabel: 'B',
       }),
     ).rejects.toBeInstanceOf(BadGatewayException);
   });
