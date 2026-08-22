@@ -355,15 +355,28 @@ export class AgentService {
     },
   ): ClientOnlyTranscriptResult {
     const clientSpeakerLabel =
-      this.asOptionalString(parsedResponse.client_speaker_label) ??
+      this.getOptionalStringField(parsedResponse, [
+        'client_speaker_label',
+        'clientSpeakerLabel',
+      ]) ??
       fallback.clientSpeakerLabel;
     const counselorSpeakerLabel =
-      this.asOptionalString(parsedResponse.counselor_speaker_label) ??
+      this.getOptionalStringField(parsedResponse, [
+        'counselor_speaker_label',
+        'counselorSpeakerLabel',
+      ]) ??
       fallback.counselorSpeakerLabel;
-    const clientUtterances = parsedResponse.client_utterances;
-    const counselorUtterances = parsedResponse.counselor_utterances;
+    const clientUtterances = this.getArrayField(parsedResponse, [
+      'client_utterances',
+      'clientUtterances',
+    ]);
+    const counselorUtterances =
+      this.getArrayField(parsedResponse, [
+        'counselor_utterances',
+        'counselorUtterances',
+      ]) ?? [];
 
-    if (!Array.isArray(clientUtterances)) {
+    if (!clientUtterances) {
       throw new BadGatewayException(
         'Agent returned an invalid client transcript structure',
       );
@@ -383,14 +396,19 @@ export class AgentService {
           )
         : [],
       clientUtteranceKeywords: this.toClientUtteranceKeywords(
-        parsedResponse.client_utterance_keywords,
+        this.getArrayField(parsedResponse, [
+          'client_utterance_keywords',
+          'clientUtteranceKeywords',
+        ]),
       ),
-      clientUtteranceTotalWordCount: this.asOptionalNumber(
-        parsedResponse.client_utterance_total_word_count,
+      clientUtteranceTotalWordCount: this.getOptionalNumberField(
+        parsedResponse,
+        ['client_utterance_total_word_count', 'clientUtteranceTotalWordCount'],
       ),
-      clientNameOrInitials: this.asOptionalString(
-        parsedResponse.client_name_or_initials,
-      ),
+      clientNameOrInitials: this.getOptionalStringField(parsedResponse, [
+        'client_name_or_initials',
+        'clientNameOrInitials',
+      ]),
     };
   }
 
@@ -410,12 +428,16 @@ export class AgentService {
 
     const rawUtterance = utterance as JsonObject;
     const speakerLabel =
-      this.asOptionalString(rawUtterance.speaker_label) ??
-      this.asOptionalString(rawUtterance.speakerLabel) ??
+      this.getOptionalStringField(rawUtterance, [
+        'speaker_label',
+        'speakerLabel',
+      ]) ??
       fallbackSpeakerLabel;
     const utteranceText =
-      this.asOptionalString(rawUtterance.utterance_text) ??
-      this.asOptionalString(rawUtterance.utteranceText);
+      this.getOptionalStringField(rawUtterance, [
+        'utterance_text',
+        'utteranceText',
+      ]);
 
     if (
       typeof speakerLabel !== 'string' ||
@@ -428,13 +450,15 @@ export class AgentService {
       );
     }
 
-    const page = this.asOptionalNumber(rawUtterance.page);
-    const turnIndex =
-      this.asOptionalNumber(rawUtterance.turn_index) ??
-      this.asOptionalNumber(rawUtterance.turnIndex);
-    const timestampOriginal =
-      this.asOptionalString(rawUtterance.timestamp_original) ??
-      this.asOptionalString(rawUtterance.timestampOriginal);
+    const page = this.getOptionalNumberField(rawUtterance, ['page']);
+    const turnIndex = this.getOptionalNumberField(rawUtterance, [
+      'turn_index',
+      'turnIndex',
+    ]);
+    const timestampOriginal = this.getOptionalStringField(rawUtterance, [
+      'timestamp_original',
+      'timestampOriginal',
+    ]);
 
     return {
       page,
@@ -458,8 +482,8 @@ export class AgentService {
       }
 
       const rawItem = item as JsonObject;
-      const keyword = this.asOptionalString(rawItem.keyword);
-      const count = this.asOptionalNumber(rawItem.count);
+      const keyword = this.getOptionalStringField(rawItem, ['keyword']);
+      const count = this.getOptionalNumberField(rawItem, ['count']);
 
       if (!keyword || count === undefined) {
         throw new BadGatewayException(
@@ -472,6 +496,51 @@ export class AgentService {
         count,
       };
     });
+  }
+
+  private getArrayField(
+    source: JsonObject,
+    keys: string[],
+  ): unknown[] | undefined {
+    for (const key of keys) {
+      const value = source[key];
+
+      if (Array.isArray(value)) {
+        return value;
+      }
+    }
+
+    return undefined;
+  }
+
+  private getOptionalStringField(
+    source: JsonObject,
+    keys: string[],
+  ): string | undefined {
+    for (const key of keys) {
+      const value = this.asOptionalString(source[key]);
+
+      if (value !== undefined) {
+        return value;
+      }
+    }
+
+    return undefined;
+  }
+
+  private getOptionalNumberField(
+    source: JsonObject,
+    keys: string[],
+  ): number | undefined {
+    for (const key of keys) {
+      const value = this.asOptionalNumber(source[key]);
+
+      if (value !== undefined) {
+        return value;
+      }
+    }
+
+    return undefined;
   }
 
   private asOptionalNumber(value: unknown): number | undefined {
