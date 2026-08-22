@@ -174,6 +174,8 @@ export class AgentService {
     const { agentId, client } = this.createAgentClient();
 
     try {
+      this.logger.warn(`DEBUG second-pass prompt: ${prompt}`);
+
       const response = await client.responses.create({
         model: agentId,
         input: [
