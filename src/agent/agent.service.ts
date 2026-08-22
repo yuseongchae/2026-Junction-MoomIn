@@ -348,29 +348,20 @@ export class AgentService {
     analysisContext: JsonObject,
     clientSpeakerLabel: string,
   ): string {
+    void analysisContext;
+    void clientSpeakerLabel;
+
     return [
-      'You will receive the completed first-pass transcript analysis for a counseling session.',
-      `The counselor selected "${clientSpeakerLabel}" as the client speaker.`,
-      'Return JSON only.',
-      'Do not wrap the JSON in markdown or code fences.',
-      'Do not add commentary before or after the JSON.',
-      'The top-level response must be a single JSON object.',
-      'client_utterances must be a top-level array.',
-      'counselor_utterances must be a top-level array.',
-      'Do not stringify arrays.',
-      'Do not nest client_utterances or counselor_utterances inside another object.',
-      'If there are no utterances for a field, return an empty array [] instead of omitting the field.',
-      'Extract ONLY the utterances spoken by the selected client speaker into client_utterances.',
-      'Put counselor utterances into counselor_utterances.',
-      'If at least one utterance exists, it must appear in the appropriate array.',
-      'Include all utterances. Do not sample. Do not limit the arrays to 3 items or any other small subset.',
-      'Do not summarize, paraphrase, normalize, or rewrite the transcript text.',
-      'Use snake_case field names in the JSON response.',
-      'Preserve original metadata when available: page, turn_index, speaker_label, utterance_text, timestamp_original.',
-      'Respond with exactly this JSON shape:',
-      '{"client_speaker_label":"string","counselor_speaker_label":"string","client_name_or_initials":"string","client_utterance_total_word_count":1,"client_utterances":[{"page":1,"turn_index":2,"speaker_label":"string","utterance_text":"string","timestamp_original":"string"}],"counselor_utterances":[{"page":1,"turn_index":1,"speaker_label":"string","utterance_text":"string","timestamp_original":"string"}],"client_utterance_keywords":[{"keyword":"string","count":1}]}',
-      'First-pass analysis JSON:',
-      JSON.stringify(analysisContext),
+      'Return exactly this JSON and nothing else:',
+      '{',
+      '  "client_utterances": [',
+      '    {',
+      '      "speaker_label": "발화자 2",',
+      '      "utterance_text": "테스트"',
+      '    }',
+      '  ],',
+      '  "counselor_utterances": []',
+      '}',
     ].join('\n\n');
   }
 
