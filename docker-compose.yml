@@ -12,5 +12,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moomin-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: postgres
+    ports:
+      - '${PORT:-3000}:3000'
+
 volumes:
   postgres_data:

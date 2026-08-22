@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AgentModule } from '@/agent/agent.module';
 import { AppController } from '@/app.controller';
 import { AppService } from '@/app.service';
 import { ClientModule } from '@/clients/client.module';
@@ -19,6 +20,7 @@ import { SessionModule } from '@/sessions/session.module';
       inject: [ConfigService],
       useFactory: createTypeOrmOptions,
     }),
+    AgentModule,
     ClientModule,
     SessionModule,
     DocumentModule,
