@@ -493,4 +493,75 @@ describe('SessionsService', () => {
         ],
       });
     });
+
+    it('maps clientUtteranceKeywords when the stored analysis uses camelCase keys', async () => {
+      const session = {
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          client_speaker_label: 'B',
+          counselor_speaker_label: 'A',
+          client_utterances: [
+            {
+              speaker_label: 'B',
+              utterance_text: '잘 잤습니다.',
+            },
+          ],
+          counselor_utterances: [],
+          clientUtteranceKeywords: [
+            {
+              keyword: '과제',
+              count: '6',
+            },
+            {
+              keyword: '친구',
+              count: 3,
+            },
+          ],
+        },
+        clientSpeakerLabel: null,
+      } as unknown as Session;
+
+      sessionsRepository.findOneBy!.mockResolvedValue(session);
+      sessionsRepository.merge!.mockReturnValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+      sessionsRepository.save!.mockResolvedValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+
+      await expect(
+        service.selectClientSpeaker('session-id', {
+          clientSpeakerLabel: 'B',
+        }),
+      ).resolves.toEqual({
+        sessionId: 'session-id',
+        clientSpeakerLabel: 'B',
+        status: 'completed',
+        clientUtterances: [
+          {
+            speakerLabel: 'B',
+            utteranceText: '잘 잤습니다.',
+            page: undefined,
+            turnIndex: undefined,
+            timestampOriginal: undefined,
+          },
+        ],
+        clientUtteranceTotalWordCount: undefined,
+        clientNameOrInitials: undefined,
+        counselorUtterances: [],
+        clientUtteranceKeywords: [
+          {
+            keyword: '과제',
+            count: 6,
+          },
+          {
+            keyword: '친구',
+            count: 3,
+          },
+        ],
+      });
+    });
 });
