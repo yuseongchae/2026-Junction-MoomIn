@@ -172,24 +172,35 @@ export class AgentService {
     prompt: string,
   ): Promise<OpenAI.Responses.Response> {
     const { agentId, client } = this.createAgentClient();
+    const input = [
+      {
+        role: 'user' as const,
+        content: [
+          {
+            type: 'input_text' as const,
+            text: prompt,
+          },
+        ],
+      },
+    ];
 
     try {
       this.logger.warn(`DEBUG second-pass prompt: ${prompt}`);
+      this.logger.warn(
+        `DEBUG second-pass request: ${JSON.stringify({
+          agentId,
+          input,
+          inputText: prompt,
+          inputTextLength: prompt.length,
+        })}`,
+      );
 
       const response = await client.responses.create({
         model: agentId,
-        input: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'input_text',
-                text: prompt,
-              },
-            ],
-          },
-        ],
+        input,
       });
+
+      this.logAgentRawResponse('create', response);
 
       return await this.pollUntilFinished(client, response.id);
     } catch (error) {
@@ -222,6 +233,7 @@ export class AgentService {
   ): Promise<OpenAI.Responses.Response> {
     let attempts = 0;
     let currentResponse = await client.responses.retrieve(responseId);
+    this.logAgentRawResponse('retrieve-initial', currentResponse);
 
     while (
       currentResponse.status === 'queued' ||
@@ -235,6 +247,7 @@ export class AgentService {
 
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       currentResponse = await client.responses.retrieve(responseId);
+      this.logAgentRawResponse(`retrieve-poll-${attempts + 1}`, currentResponse);
       attempts += 1;
     }
 
@@ -326,6 +339,40 @@ export class AgentService {
 
     throw new BadGatewayException(
       'Agent response did not include JSON text output',
+    );
+  }
+
+  private logAgentRawResponse(
+    stage: string,
+    response: OpenAI.Responses.Response,
+  ): void {
+    const rawResponse = response as unknown as Record<string, unknown>;
+    const outputItems =
+      (rawResponse.output as Array<Record<string, unknown>> | undefined) ?? [];
+    const outputSummary = outputItems.map((item, index) => {
+      const contents = Array.isArray(item.content)
+        ? (item.content as Array<Record<string, unknown>>)
+        : [];
+
+      return {
+        index,
+        type: item.type,
+        id: item.id,
+        role: item.role,
+        contentTypes: contents.map((content) => content.type),
+        content: contents,
+      };
+    });
+
+    this.logger.warn(
+      `DEBUG agent raw response [${stage}]: ${JSON.stringify({
+        id: rawResponse.id,
+        status: rawResponse.status,
+        output: rawResponse.output,
+        output_text: rawResponse.output_text,
+        outputItemTypes: outputItems.map((item) => item.type),
+        outputSummary,
+      })}`,
     );
   }
 
