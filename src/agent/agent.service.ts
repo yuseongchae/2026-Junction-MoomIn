@@ -262,6 +262,10 @@ export class AgentService {
     const outputText = this.extractOutputText(response);
     const normalizedOutputText = this.normalizeJsonText(outputText);
 
+    this.logger.warn(
+  `DEBUG outputText: ${JSON.stringify(outputText)}`,
+);
+
     try {
       const parsed = JSON.parse(normalizedOutputText) as unknown;
       this.logger.warn(`DEBUG parsedResponse: ${JSON.stringify(parsed)}`);
