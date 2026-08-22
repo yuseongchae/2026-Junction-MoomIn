@@ -414,4 +414,83 @@ describe('SessionsService', () => {
         clientUtteranceKeywords: [],
       });
     });
+
+    it('maps client_utterance_keywords when keyword counts are numeric strings', async () => {
+      const session = {
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          client_speaker_label: 'B',
+          counselor_speaker_label: 'A',
+          client_utterances: [
+            {
+              speaker_label: 'B',
+              utterance_text: '잘 잤습니다.',
+            },
+          ],
+          counselor_utterances: [],
+          client_utterance_keywords: [
+            {
+              keyword: '과제',
+              count: '6',
+            },
+            {
+              keyword: '그냥',
+              count: '6',
+            },
+            {
+              keyword: '성적',
+              count: '3',
+            },
+          ],
+        },
+        clientSpeakerLabel: null,
+      } as unknown as Session;
+
+      sessionsRepository.findOneBy!.mockResolvedValue(session);
+      sessionsRepository.merge!.mockReturnValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+      sessionsRepository.save!.mockResolvedValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+
+      await expect(
+        service.selectClientSpeaker('session-id', {
+          clientSpeakerLabel: 'B',
+        }),
+      ).resolves.toEqual({
+        sessionId: 'session-id',
+        clientSpeakerLabel: 'B',
+        status: 'completed',
+        clientUtterances: [
+          {
+            speakerLabel: 'B',
+            utteranceText: '잘 잤습니다.',
+            page: undefined,
+            turnIndex: undefined,
+            timestampOriginal: undefined,
+          },
+        ],
+        clientUtteranceTotalWordCount: undefined,
+        clientNameOrInitials: undefined,
+        counselorUtterances: [],
+        clientUtteranceKeywords: [
+          {
+            keyword: '과제',
+            count: 6,
+          },
+          {
+            keyword: '그냥',
+            count: 6,
+          },
+          {
+            keyword: '성적',
+            count: 3,
+          },
+        ],
+      });
+    });
 });
