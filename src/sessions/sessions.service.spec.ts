@@ -1,5 +1,4 @@
 import {
-  BadGatewayException,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
@@ -33,7 +32,6 @@ describe('SessionsService', () => {
     };
     agentService = {
       analyzeSessionTranscriptToJson: jest.fn(),
-      extractClientOnlyTranscript: jest.fn(),
     };
 
     service = new SessionsService(
@@ -240,17 +238,46 @@ describe('SessionsService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('returns only the selected client utterances after agent extraction', async () => {
+    it('returns only the selected client utterances from first-pass analysis', async () => {
     const session = {
       id: 'session-id',
       clientId: 'client-id',
       initialAnalysisResult: {
         client_speaker_label: 'B',
         counselor_speaker_label: 'A',
-        transcript: [
-          { speakerLabel: 'A', utteranceText: '오늘 어땠나요?' },
-          { speakerLabel: 'B', utteranceText: '잘 잤습니다.' },
+          client_name_or_initials: '서연',
+          client_utterance_total_word_count: 3,
+          client_utterances: [
+            {
+              page: 1,
+              turn_index: 2,
+              speaker_label: 'B',
+              utterance_text: '잘 잤습니다.',
+              timestamp_original: '00:04',
+            },
+            {
+              page: 1,
+              turn_index: 3,
+              speaker_label: 'A',
+              utterance_text: '오늘 어땠나요?',
+              timestamp_original: '00:01',
+            },
+          ],
+          counselor_utterances: [
+            {
+              page: 1,
+              turn_index: 1,
+              speaker_label: 'A',
+              utterance_text: '오늘 어땠나요?',
+              timestamp_original: '00:01',
+            },
         ],
+          client_utterance_keywords: [
+            {
+              keyword: '수면',
+              count: 1,
+            },
+          ],
       },
       clientSpeakerLabel: null,
     } as unknown as Session;
@@ -263,35 +290,6 @@ describe('SessionsService', () => {
     sessionsRepository.save!.mockResolvedValue({
       ...session,
       clientSpeakerLabel: 'B',
-    });
-    agentService.extractClientOnlyTranscript!.mockResolvedValue({
-      clientSpeakerLabel: 'B',
-      clientUtterances: [
-        {
-          page: 1,
-          turnIndex: 2,
-          speakerLabel: 'B',
-          utteranceText: '잘 잤습니다.',
-          timestampOriginal: '00:04',
-        },
-      ],
-      counselorUtterances: [
-        {
-          page: 1,
-          turnIndex: 1,
-          speakerLabel: 'A',
-          utteranceText: '오늘 어땠나요?',
-          timestampOriginal: '00:01',
-        },
-      ],
-      clientUtteranceKeywords: [
-        {
-          keyword: '수면',
-          count: 1,
-        },
-      ],
-      clientUtteranceTotalWordCount: 3,
-      clientNameOrInitials: '서연',
     });
 
     await expect(
@@ -331,13 +329,19 @@ describe('SessionsService', () => {
     });
   });
 
-  it('rejects mixed-speaker utterances from the agent', async () => {
+    it('rejects selection when the chosen speaker has no client utterances', async () => {
     const session = {
       id: 'session-id',
       clientId: 'client-id',
       initialAnalysisResult: {
         client_speaker_label: 'B',
         counselor_speaker_label: 'A',
+          client_utterances: [
+            {
+              speaker_label: 'C',
+              utterance_text: '다른 발화자입니다.',
+            },
+          ],
       },
       clientSpeakerLabel: null,
     } as unknown as Session;
@@ -351,22 +355,11 @@ describe('SessionsService', () => {
       ...session,
       clientSpeakerLabel: 'B',
     });
-    agentService.extractClientOnlyTranscript!.mockResolvedValue({
-      clientSpeakerLabel: 'B',
-      clientUtterances: [
-        {
-          speakerLabel: 'A',
-          utteranceText: '오늘 어땠나요?',
-        },
-      ],
-      counselorUtterances: [],
-      clientUtteranceKeywords: [],
-    });
 
     await expect(
       service.selectClientSpeaker('session-id', {
         clientSpeakerLabel: 'B',
       }),
-    ).rejects.toBeInstanceOf(BadGatewayException);
+      ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

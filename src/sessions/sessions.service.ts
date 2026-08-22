@@ -143,38 +143,37 @@ export class SessionsService {
     });
     await this.sessionsRepository.save(updatedSession);
 
-    const clientTranscript =
-      await this.agentService.extractClientOnlyTranscript({
-        analysisContext: session.initialAnalysisResult,
-        clientSpeakerLabel: selectedSpeakerLabel,
-      });
-
-    if (clientTranscript.clientSpeakerLabel !== selectedSpeakerLabel) {
-      throw new BadGatewayException(
-        'Agent returned a different client speaker label',
+      const clientUtterances = this.toTranscriptUtterances(
+        session.initialAnalysisResult.client_utterances,
+      ).filter((utterance) => utterance.speakerLabel === selectedSpeakerLabel);
+      const counselorUtterances = this.toTranscriptUtterances(
+        session.initialAnalysisResult.counselor_utterances,
       );
-    }
 
-    if (
-      clientTranscript.clientUtterances.some(
-        (utterance) => utterance.speakerLabel !== selectedSpeakerLabel,
-      )
-    ) {
-      throw new BadGatewayException(
-        'Agent returned utterances for speakers other than the selected client',
-      );
-    }
+      if (!clientUtterances.length) {
+        throw new BadRequestException(
+          'Selected speaker does not have any utterances in the analyzed transcript',
+        );
+      }
 
     return {
       sessionId: updatedSession.id,
       clientSpeakerLabel: selectedSpeakerLabel,
       status: 'completed',
-      clientUtterances: clientTranscript.clientUtterances,
-      clientUtteranceTotalWordCount:
-        clientTranscript.clientUtteranceTotalWordCount,
-      clientNameOrInitials: clientTranscript.clientNameOrInitials,
-      counselorUtterances: clientTranscript.counselorUtterances,
-      clientUtteranceKeywords: clientTranscript.clientUtteranceKeywords,
+        clientUtterances,
+        clientUtteranceTotalWordCount: this.getNumberField(
+          session.initialAnalysisResult,
+          'client_utterance_total_word_count',
+        ),
+        clientNameOrInitials:
+          this.getStringField(
+            session.initialAnalysisResult,
+            'client_name_or_initials',
+          ) ?? undefined,
+        counselorUtterances,
+        clientUtteranceKeywords: this.toClientUtteranceKeywords(
+          session.initialAnalysisResult.client_utterance_keywords,
+        ),
     };
   }
 
@@ -319,5 +318,96 @@ export class SessionsService {
     }
 
     return null;
+  }
+
+  private getNumberField(
+    source: Record<string, unknown>,
+    key: string,
+  ): number | undefined {
+    const value = source[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    return undefined;
+  }
+
+  private toTranscriptUtterances(
+    source: unknown,
+  ): ClientSpeakerSelectionResponseDto['clientUtterances'] {
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source.flatMap((item) => {
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+
+      const rawUtterance = item as Record<string, unknown>;
+      const speakerLabel = this.getNonEmptyString(rawUtterance.speaker_label);
+      const utteranceText = this.getNonEmptyString(rawUtterance.utterance_text);
+
+      if (!speakerLabel || !utteranceText) {
+        return [];
+      }
+
+      return [
+        {
+          page:
+            typeof rawUtterance.page === 'number' &&
+            Number.isFinite(rawUtterance.page)
+              ? rawUtterance.page
+              : undefined,
+          turnIndex:
+            typeof rawUtterance.turn_index === 'number' &&
+            Number.isFinite(rawUtterance.turn_index)
+              ? rawUtterance.turn_index
+              : undefined,
+          speakerLabel,
+          utteranceText,
+          timestampOriginal: this.getNonEmptyString(
+            rawUtterance.timestamp_original,
+          ),
+        },
+      ];
+    });
+  }
+
+  private toClientUtteranceKeywords(
+    source: unknown,
+  ): ClientSpeakerSelectionResponseDto['clientUtteranceKeywords'] {
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source.flatMap((item) => {
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+
+      const rawKeyword = item as Record<string, unknown>;
+      const keyword = this.getNonEmptyString(rawKeyword.keyword);
+
+      if (
+        !keyword ||
+        typeof rawKeyword.count !== 'number' ||
+        !Number.isFinite(rawKeyword.count)
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          keyword,
+          count: rawKeyword.count,
+        },
+      ];
+    });
+  }
+
+  private getNonEmptyString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 }

@@ -411,7 +411,7 @@ describe('AgentService', () => {
     );
   });
 
-  it('builds a second-pass prompt that requests snake_case transcript fields', () => {
+    it('builds a second-pass prompt with the current fixed JSON structure', () => {
     const prompt = (
       service as unknown as {
         buildClientTranscriptExtractionPrompt: (
@@ -424,14 +424,16 @@ describe('AgentService', () => {
       '발화자 2',
     );
 
-    expect(prompt).toContain(
-      'Use snake_case field names in the JSON response.',
-    );
-    expect(prompt).toContain('client_speaker_label');
+      expect(prompt).toContain(
+        'Analyze the following counseling transcript analysis result.',
+      );
+      expect(prompt).toContain(
+        'The client speaker label is "발화자 2".',
+      );
     expect(prompt).toContain('client_utterances');
     expect(prompt).toContain('counselor_utterances');
-    expect(prompt).toContain(
-      'If there are no utterances for a field, return an empty array [] instead of omitting the field.',
-    );
+      expect(prompt).toContain('"speaker_label": "발화자 2"');
+      expect(prompt).toContain('"utterance_text": "..."');
+      expect(prompt).toContain('Transcript analysis result:');
   });
 });
