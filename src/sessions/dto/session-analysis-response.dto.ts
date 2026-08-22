@@ -8,11 +8,23 @@ export class SessionAnalysisResponseDto {
   status: string;
 
   @ApiProperty({
+    example: '발화자 2',
+    nullable: true,
+  })
+  clientSpeakerLabel: string | null;
+
+  @ApiProperty({
+    example: '발화자 1',
+    nullable: true,
+  })
+  counselorSpeakerLabel: string | null;
+
+  @ApiProperty({
     type: 'array',
     items: { type: 'string' },
-    example: ['A', 'B'],
+    example: ['발화자 1', '발화자 2'],
   })
-  availableSpeakerLabels: string[];
+  speakers: string[];
 
   @ApiProperty({
     description: '1차 Agent 분석에서 파싱한 JSON 결과',

@@ -126,10 +126,11 @@ describe('SessionsService', () => {
       clientSpeakerLabel: null,
     } as Session;
     const analysisResult = {
-      speakers: ['A', 'B'],
+      client_speaker_label: '발화자 2',
+      counselor_speaker_label: '발화자 1',
       transcript: [
-        { speakerLabel: 'A', utteranceText: '오늘 어땠나요?' },
-        { speakerLabel: 'B', utteranceText: '잘 잤습니다.' },
+        { speakerLabel: '발화자 1', utteranceText: '오늘 어땠나요?' },
+        { speakerLabel: '발화자 2', utteranceText: '잘 잤습니다.' },
       ],
     };
 
@@ -138,12 +139,12 @@ describe('SessionsService', () => {
     sessionsRepository.merge!.mockReturnValue({
       ...session,
       initialAnalysisResult: analysisResult,
-      clientSpeakerLabel: null,
+      clientSpeakerLabel: '발화자 2',
     });
     sessionsRepository.save!.mockResolvedValue({
       ...session,
       initialAnalysisResult: analysisResult,
-      clientSpeakerLabel: null,
+      clientSpeakerLabel: '발화자 2',
     });
 
     await expect(
@@ -154,7 +155,50 @@ describe('SessionsService', () => {
     ).resolves.toEqual({
       sessionId: 'session-id',
       status: 'completed',
-      availableSpeakerLabels: ['A', 'B'],
+      clientSpeakerLabel: '발화자 2',
+      counselorSpeakerLabel: '발화자 1',
+      speakers: ['발화자 2', '발화자 1'],
+      analysisResult,
+    });
+  });
+
+  it('stores parsed client speaker label even without explicit speakers array', async () => {
+    const session = {
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: null,
+      clientSpeakerLabel: null,
+    } as Session;
+    const analysisResult = {
+      document_type: 'transcript',
+      client_speaker_label: '발화자 2',
+      counselor_speaker_label: '발화자 1',
+    };
+
+    sessionsRepository.findOneBy!.mockResolvedValue(session);
+    agentService.analyzeDocumentToJson!.mockResolvedValue(analysisResult);
+    sessionsRepository.merge!.mockReturnValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: '발화자 2',
+    });
+    sessionsRepository.save!.mockResolvedValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: '발화자 2',
+    });
+
+    await expect(
+      service.analyzeSessionDocument('session-id', {
+        buffer: Buffer.from('transcript'),
+        originalname: 'transcript.txt',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-id',
+      status: 'completed',
+      clientSpeakerLabel: '발화자 2',
+      counselorSpeakerLabel: '발화자 1',
+      speakers: ['발화자 2', '발화자 1'],
       analysisResult,
     });
   });
@@ -169,7 +213,7 @@ describe('SessionsService', () => {
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        clientSpeakerLabel: 'B',
+        speakerLabel: 'B',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -179,14 +223,15 @@ describe('SessionsService', () => {
       id: 'session-id',
       clientId: 'client-id',
       initialAnalysisResult: {
-        speakers: ['A', 'B'],
+        client_speaker_label: 'A',
+        counselor_speaker_label: 'B',
       },
       clientSpeakerLabel: null,
     });
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        clientSpeakerLabel: 'C',
+        speakerLabel: 'C',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -196,7 +241,8 @@ describe('SessionsService', () => {
       id: 'session-id',
       clientId: 'client-id',
       initialAnalysisResult: {
-        speakers: ['A', 'B'],
+        client_speaker_label: 'B',
+        counselor_speaker_label: 'A',
         transcript: [
           { speakerLabel: 'A', utteranceText: '오늘 어땠나요?' },
           { speakerLabel: 'B', utteranceText: '잘 잤습니다.' },
@@ -229,7 +275,7 @@ describe('SessionsService', () => {
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        clientSpeakerLabel: 'B',
+        speakerLabel: 'B',
       }),
     ).resolves.toEqual({
       sessionId: 'session-id',
@@ -252,7 +298,8 @@ describe('SessionsService', () => {
       id: 'session-id',
       clientId: 'client-id',
       initialAnalysisResult: {
-        speakers: ['A', 'B'],
+        client_speaker_label: 'B',
+        counselor_speaker_label: 'A',
       },
       clientSpeakerLabel: null,
     } as unknown as Session;
@@ -278,7 +325,7 @@ describe('SessionsService', () => {
 
     await expect(
       service.selectClientSpeaker('session-id', {
-        clientSpeakerLabel: 'B',
+        speakerLabel: 'B',
       }),
     ).rejects.toBeInstanceOf(BadGatewayException);
   });

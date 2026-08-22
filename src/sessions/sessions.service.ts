@@ -72,9 +72,20 @@ export class SessionsService {
   ): Promise<SessionAnalysisResponseDto> {
     const session = await this.findEntityOrThrow(id);
     const analysisResult = await this.agentService.analyzeDocumentToJson(file);
-    const availableSpeakerLabels = this.collectSpeakerLabels(analysisResult);
+    const clientSpeakerLabel = this.getStringField(
+      analysisResult,
+      'client_speaker_label',
+    );
+    const counselorSpeakerLabel = this.getStringField(
+      analysisResult,
+      'counselor_speaker_label',
+    );
+    const speakers = this.collectSpeakerLabels(analysisResult, {
+      clientSpeakerLabel,
+      counselorSpeakerLabel,
+    });
 
-    if (!availableSpeakerLabels.length) {
+    if (!speakers.length) {
       throw new BadGatewayException(
         'Agent analysis did not include identifiable speaker labels',
       );
@@ -82,14 +93,16 @@ export class SessionsService {
 
     const updatedSession = this.sessionsRepository.merge(session, {
       initialAnalysisResult: analysisResult,
-      clientSpeakerLabel: null,
+      clientSpeakerLabel,
     });
     await this.sessionsRepository.save(updatedSession);
 
     return {
       sessionId: updatedSession.id,
       status: 'completed',
-      availableSpeakerLabels,
+      clientSpeakerLabel,
+      counselorSpeakerLabel,
+      speakers,
       analysisResult,
     };
   }
@@ -106,13 +119,21 @@ export class SessionsService {
       );
     }
 
-    const selectedSpeakerLabel =
-      selectClientSpeakerDto.clientSpeakerLabel.trim();
-    const availableSpeakerLabels = this.collectSpeakerLabels(
+    const selectedSpeakerLabel = selectClientSpeakerDto.speakerLabel.trim();
+    const clientSpeakerLabelFromAnalysis = this.getStringField(
       session.initialAnalysisResult,
+      'client_speaker_label',
     );
+    const counselorSpeakerLabelFromAnalysis = this.getStringField(
+      session.initialAnalysisResult,
+      'counselor_speaker_label',
+    );
+    const speakers = this.collectSpeakerLabels(session.initialAnalysisResult, {
+      clientSpeakerLabel: clientSpeakerLabelFromAnalysis,
+      counselorSpeakerLabel: counselorSpeakerLabelFromAnalysis,
+    });
 
-    if (!availableSpeakerLabels.includes(selectedSpeakerLabel)) {
+    if (!speakers.includes(selectedSpeakerLabel)) {
       throw new BadRequestException(
         'Selected speaker was not found in the analyzed transcript',
       );
@@ -213,8 +234,23 @@ export class SessionsService {
     };
   }
 
-  private collectSpeakerLabels(analysisResult: Record<string, unknown>): string[] {
+  private collectSpeakerLabels(
+    analysisResult: Record<string, unknown>,
+    knownLabels?: {
+      clientSpeakerLabel: string | null;
+      counselorSpeakerLabel: string | null;
+    },
+  ): string[] {
     const speakerLabels = new Set<string>();
+
+    for (const label of [
+      knownLabels?.clientSpeakerLabel,
+      knownLabels?.counselorSpeakerLabel,
+    ]) {
+      if (typeof label === 'string' && label.trim()) {
+        speakerLabels.add(label.trim());
+      }
+    }
 
     const visit = (value: unknown): void => {
       if (Array.isArray(value)) {
@@ -250,6 +286,7 @@ export class SessionsService {
 
           for (const candidate of [
             rawSpeaker.speakerLabel,
+            rawSpeaker.speaker_label,
             rawSpeaker.speaker,
             rawSpeaker.name,
           ]) {
@@ -266,5 +303,18 @@ export class SessionsService {
     visit(analysisResult);
 
     return [...speakerLabels];
+  }
+
+  private getStringField(
+    source: Record<string, unknown>,
+    key: string,
+  ): string | null {
+    const value = source[key];
+
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+
+    return null;
   }
 }

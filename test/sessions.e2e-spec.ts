@@ -37,9 +37,12 @@ describe('SessionsController (e2e)', () => {
     sessionsService.analyzeSessionDocument.mockResolvedValue({
       sessionId: '11111111-1111-1111-1111-111111111111',
       status: 'completed',
-      availableSpeakerLabels: ['A', 'B'],
+      clientSpeakerLabel: '발화자 2',
+      counselorSpeakerLabel: '발화자 1',
+      speakers: ['발화자 1', '발화자 2'],
       analysisResult: {
-        speakers: ['A', 'B'],
+        client_speaker_label: '발화자 2',
+        counselor_speaker_label: '발화자 1',
       },
     });
 
@@ -50,9 +53,12 @@ describe('SessionsController (e2e)', () => {
       .expect({
         sessionId: '11111111-1111-1111-1111-111111111111',
         status: 'completed',
-        availableSpeakerLabels: ['A', 'B'],
+        clientSpeakerLabel: '발화자 2',
+        counselorSpeakerLabel: '발화자 1',
+        speakers: ['발화자 1', '발화자 2'],
         analysisResult: {
-          speakers: ['A', 'B'],
+          client_speaker_label: '발화자 2',
+          counselor_speaker_label: '발화자 1',
         },
       });
   });
@@ -94,7 +100,7 @@ describe('SessionsController (e2e)', () => {
         '/api/sessions/11111111-1111-1111-1111-111111111111/speaker-selection',
       )
       .send({
-        clientSpeakerLabel: 'B',
+        speakerLabel: 'B',
       })
       .expect(200)
       .expect({
