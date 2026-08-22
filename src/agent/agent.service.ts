@@ -264,6 +264,7 @@ export class AgentService {
 
     try {
       const parsed = JSON.parse(normalizedOutputText) as unknown;
+      this.logger.warn(`DEBUG parsedResponse: ${JSON.stringify(parsed)}`);
 
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
         throw new BadGatewayException('Agent response JSON must be an object');
