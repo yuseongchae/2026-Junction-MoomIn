@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -55,6 +56,8 @@ type AnalyzeFileOptions = {
 
 @Injectable()
 export class AgentService {
+  private readonly logger = new Logger(AgentService.name);
+
   constructor(private readonly configService: ConfigService) {}
 
   async analyzeDocument(
@@ -257,9 +260,10 @@ export class AgentService {
 
   private parseJsonOutput(response: OpenAI.Responses.Response): JsonObject {
     const outputText = this.extractOutputText(response);
+    const normalizedOutputText = this.normalizeJsonText(outputText);
 
     try {
-      const parsed = JSON.parse(outputText) as unknown;
+      const parsed = JSON.parse(normalizedOutputText) as unknown;
 
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
         throw new BadGatewayException('Agent response JSON must be an object');
@@ -270,6 +274,12 @@ export class AgentService {
       if (error instanceof BadGatewayException) {
         throw error;
       }
+
+      this.logger.warn(
+        `Failed to parse Agent response JSON: ${JSON.stringify({
+          preview: this.toSafePreview(outputText),
+        })}`,
+      );
 
       throw new BadGatewayException('Failed to parse Agent response JSON');
     }
@@ -334,9 +344,19 @@ export class AgentService {
     return [
       'You will receive the completed first-pass transcript analysis for a counseling session.',
       `The counselor selected "${clientSpeakerLabel}" as the client speaker.`,
-      'Return JSON only. Do not wrap the JSON in markdown.',
-      'Extract ONLY the utterances spoken by the selected client speaker.',
-      'Also include the counselor utterances separately in counselor_utterances.',
+      'Return JSON only.',
+      'Do not wrap the JSON in markdown or code fences.',
+      'Do not add commentary before or after the JSON.',
+      'The top-level response must be a single JSON object.',
+      'client_utterances must be a top-level array.',
+      'counselor_utterances must be a top-level array.',
+      'Do not stringify arrays.',
+      'Do not nest client_utterances or counselor_utterances inside another object.',
+      'If there are no utterances for a field, return an empty array [] instead of omitting the field.',
+      'Extract ONLY the utterances spoken by the selected client speaker into client_utterances.',
+      'Put counselor utterances into counselor_utterances.',
+      'If at least one utterance exists, it must appear in the appropriate array.',
+      'Include all utterances. Do not sample. Do not limit the arrays to 3 items or any other small subset.',
       'Do not summarize, paraphrase, normalize, or rewrite the transcript text.',
       'Use snake_case field names in the JSON response.',
       'Preserve original metadata when available: page, turn_index, speaker_label, utterance_text, timestamp_original.',
@@ -377,6 +397,18 @@ export class AgentService {
       ]) ?? [];
 
     if (!clientUtterances) {
+      this.logger.warn(
+        `Agent transcript structure is missing client utterances: ${JSON.stringify({
+          keys: Object.keys(parsedResponse).slice(0, 30),
+          clientUtterancesType: this.describeFieldType(
+            parsedResponse.client_utterances ?? parsedResponse.clientUtterances,
+          ),
+          counselorUtterancesType: this.describeFieldType(
+            parsedResponse.counselor_utterances ??
+              parsedResponse.counselorUtterances,
+          ),
+        })}`,
+      );
       throw new BadGatewayException(
         'Agent returned an invalid client transcript structure',
       );
@@ -541,6 +573,33 @@ export class AgentService {
     }
 
     return undefined;
+  }
+
+  private normalizeJsonText(value: string): string {
+    const trimmed = value.trim();
+    const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+
+    if (fenceMatch?.[1]) {
+      return fenceMatch[1].trim();
+    }
+
+    return trimmed;
+  }
+
+  private toSafePreview(value: string): string {
+    return value.replace(/\s+/g, ' ').slice(0, 300);
+  }
+
+  private describeFieldType(value: unknown): string {
+    if (Array.isArray(value)) {
+      return 'array';
+    }
+
+    if (value === null) {
+      return 'null';
+    }
+
+    return typeof value;
   }
 
   private asOptionalNumber(value: unknown): number | undefined {
