@@ -143,11 +143,18 @@ export class SessionsService {
     });
     await this.sessionsRepository.save(updatedSession);
 
+      const analysisResult = session.initialAnalysisResult;
       const clientUtterances = this.toTranscriptUtterances(
-        session.initialAnalysisResult.client_utterances,
+        this.getArrayField(analysisResult, [
+          'client_utterances',
+          'clientUtterances',
+        ]),
       ).filter((utterance) => utterance.speakerLabel === selectedSpeakerLabel);
       const counselorUtterances = this.toTranscriptUtterances(
-        session.initialAnalysisResult.counselor_utterances,
+        this.getArrayField(analysisResult, [
+          'counselor_utterances',
+          'counselorUtterances',
+        ]),
       );
 
       if (!clientUtterances.length) {
@@ -162,17 +169,20 @@ export class SessionsService {
       status: 'completed',
         clientUtterances,
         clientUtteranceTotalWordCount: this.getNumberField(
-          session.initialAnalysisResult,
+          analysisResult,
           'client_utterance_total_word_count',
         ),
         clientNameOrInitials:
           this.getStringField(
-            session.initialAnalysisResult,
+            analysisResult,
             'client_name_or_initials',
           ) ?? undefined,
         counselorUtterances,
         clientUtteranceKeywords: this.toClientUtteranceKeywords(
-          session.initialAnalysisResult.client_utterance_keywords,
+          this.getArrayField(analysisResult, [
+            'client_utterance_keywords',
+            'clientUtteranceKeywords',
+          ]),
         ),
     };
   }
@@ -405,6 +415,21 @@ export class SessionsService {
         },
       ];
     });
+  }
+
+  private getArrayField(
+    source: Record<string, unknown>,
+    keys: string[],
+  ): unknown[] | undefined {
+    for (const key of keys) {
+      const value = source[key];
+
+      if (Array.isArray(value)) {
+        return value;
+      }
+    }
+
+    return undefined;
   }
 
   private getNonEmptyString(value: unknown): string | undefined {

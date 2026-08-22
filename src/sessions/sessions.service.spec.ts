@@ -362,4 +362,56 @@ describe('SessionsService', () => {
       }),
       ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+    it('returns an empty keyword array when client_utterance_keywords is missing', async () => {
+      const session = {
+        id: 'session-id',
+        clientId: 'client-id',
+        initialAnalysisResult: {
+          client_speaker_label: 'B',
+          counselor_speaker_label: 'A',
+          client_utterances: [
+            {
+              speaker_label: 'B',
+              utterance_text: '잘 잤습니다.',
+            },
+          ],
+          counselor_utterances: [],
+        },
+        clientSpeakerLabel: null,
+      } as unknown as Session;
+
+      sessionsRepository.findOneBy!.mockResolvedValue(session);
+      sessionsRepository.merge!.mockReturnValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+      sessionsRepository.save!.mockResolvedValue({
+        ...session,
+        clientSpeakerLabel: 'B',
+      });
+
+      await expect(
+        service.selectClientSpeaker('session-id', {
+          clientSpeakerLabel: 'B',
+        }),
+      ).resolves.toEqual({
+        sessionId: 'session-id',
+        clientSpeakerLabel: 'B',
+        status: 'completed',
+        clientUtterances: [
+          {
+            speakerLabel: 'B',
+            utteranceText: '잘 잤습니다.',
+            page: undefined,
+            turnIndex: undefined,
+            timestampOriginal: undefined,
+          },
+        ],
+        clientUtteranceTotalWordCount: undefined,
+        clientNameOrInitials: undefined,
+        counselorUtterances: [],
+        clientUtteranceKeywords: [],
+      });
+    });
 });
