@@ -9,5 +9,5 @@ export class SelectClientSpeakerDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
-  speakerLabel: string;
+  clientSpeakerLabel: string;
 }

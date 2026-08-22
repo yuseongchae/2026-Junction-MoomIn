@@ -120,7 +120,8 @@ export class SessionsService {
       );
     }
 
-    const selectedSpeakerLabel = selectClientSpeakerDto.speakerLabel.trim();
+    const selectedSpeakerLabel =
+      selectClientSpeakerDto.clientSpeakerLabel.trim();
     const clientSpeakerLabelFromAnalysis = this.getStringField(
       session.initialAnalysisResult,
       'client_speaker_label',
