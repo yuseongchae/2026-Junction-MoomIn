@@ -257,10 +257,91 @@ describe('SessionsService', () => {
     ).resolves.toEqual({
       sessionId: 'session-id',
       status: 'completed',
+      documentType: 'transcript',
       clientSpeakerLabel: '발화자 2',
       counselorSpeakerLabel: '발화자 1',
       speakers: ['발화자 2', '발화자 1'],
       analysisResult,
+    });
+  });
+
+  it('returns realtime note analysis without requiring speaker labels', async () => {
+    const session = {
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: null,
+      clientSpeakerLabel: null,
+    } as Session;
+    const analysisResult = {
+      document_type: 'realtime_note',
+      counseling_date: '2026-04-15',
+      full_original_text: '원문 전체',
+      readable_structured_text: '보기 좋은 구조화 텍스트',
+    };
+
+    sessionsRepository.findOneBy!.mockResolvedValue(session);
+    agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
+      analysisResult,
+    );
+    sessionsRepository.merge!.mockReturnValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: null,
+    });
+    sessionsRepository.save!.mockResolvedValue({
+      ...session,
+      initialAnalysisResult: analysisResult,
+      clientSpeakerLabel: null,
+    });
+
+    await expect(
+      service.analyzeSessionDocument('session-id', {
+        buffer: Buffer.from('note'),
+        originalname: 'note.txt',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-id',
+      status: 'completed',
+      documentType: 'realtime_note',
+      clientSpeakerLabel: null,
+      counselorSpeakerLabel: null,
+      speakers: [],
+      analysisResult,
+      counselingDate: '2026-04-15',
+      fullOriginalText: '원문 전체',
+      readableStructuredText: '보기 좋은 구조화 텍스트',
+    });
+  });
+
+  it('gets stored realtime note analysis by session id', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+      initialAnalysisResult: {
+        document_type: 'realtime_note',
+        counseling_date: '2026-04-15',
+        full_original_text: '원문 전체',
+        readable_structured_text: '보기 좋은 구조화 텍스트',
+      },
+      clientSpeakerLabel: null,
+    });
+
+    await expect(service.getAnalysis('session-id')).resolves.toEqual({
+      sessionId: 'session-id',
+      status: 'completed',
+      documentType: 'realtime_note',
+      clientSpeakerLabel: null,
+      counselorSpeakerLabel: null,
+      speakers: [],
+      analysisResult: {
+        document_type: 'realtime_note',
+        counseling_date: '2026-04-15',
+        full_original_text: '원문 전체',
+        readable_structured_text: '보기 좋은 구조화 텍스트',
+      },
+      counselingDate: '2026-04-15',
+      fullOriginalText: '원문 전체',
+      readableStructuredText: '보기 좋은 구조화 텍스트',
     });
   });
 

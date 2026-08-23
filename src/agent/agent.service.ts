@@ -78,23 +78,27 @@ export class AgentService {
 
   async analyzeSessionTranscriptToJson(
     file: UploadedDocumentFile | undefined,
+    debugContext?: {
+      requestTag?: string;
+    },
   ): Promise<JsonObject> {
     const completedResponse = await this.analyzeFile(file, {
       prompt: this.buildFullTranscriptAnalysisPrompt(),
     });
-      this.logger.warn(
-        `=== AGENT RAW RESPONSE === ${JSON.stringify(
-          completedResponse as unknown as Record<string, unknown>,
-        )}`,
-      );
-      const parsedResponse = this.parseJsonOutput(completedResponse);
-      this.logger.warn(
-        `=== CLIENT UTTERANCE KEYWORDS === ${JSON.stringify(
-          this.extractClientUtteranceKeywordsForDebug(parsedResponse),
-        )}`,
-      );
+    const rawFieldSummary =
+      this.summarizeKeywordFieldsFromRawResponse(completedResponse);
 
-      return parsedResponse;
+    this.logger.warn(
+      `=== AGENT RAW RESPONSE === ${JSON.stringify({
+        requestTag: debugContext?.requestTag,
+        responseId: completedResponse.id,
+        status: completedResponse.status,
+        ...rawFieldSummary,
+      })}`,
+    );
+    const parsedResponse = this.parseJsonOutput(completedResponse, debugContext);
+
+    return parsedResponse;
   }
 
   async extractClientOnlyTranscript(params: {
@@ -309,22 +313,42 @@ export class AgentService {
     };
   }
 
-  private parseJsonOutput(response: OpenAI.Responses.Response): JsonObject {
+  private parseJsonOutput(
+    response: OpenAI.Responses.Response,
+    debugContext?: {
+      requestTag?: string;
+    },
+  ): JsonObject {
     const outputText = this.extractOutputText(response);
     const normalizedOutputText = this.normalizeJsonText(outputText);
+    const extractedFieldSummary = this.summarizeKeywordFieldsFromText(outputText);
 
     this.logger.warn(
-  `DEBUG outputText: ${JSON.stringify(outputText)}`,
-);
+      `=== EXTRACTED OUTPUT TEXT === ${JSON.stringify({
+        requestTag: debugContext?.requestTag,
+        responseId: response.id,
+        ...extractedFieldSummary,
+      })}`,
+    );
 
     try {
       const parsed = JSON.parse(normalizedOutputText) as unknown;
-      this.logger.warn(`DEBUG parsedResponse: ${JSON.stringify(parsed)}`);
-        this.logger.warn(`=== PARSED RESPONSE === ${JSON.stringify(parsed)}`);
 
       if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
         throw new BadGatewayException('Agent response JSON must be an object');
       }
+
+      const parsedFieldSummary = this.summarizeKeywordFieldsFromObject(
+        parsed as JsonObject,
+      );
+
+      this.logger.warn(
+        `=== PARSED RESPONSE === ${JSON.stringify({
+          requestTag: debugContext?.requestTag,
+          responseId: response.id,
+          ...parsedFieldSummary,
+        })}`,
+      );
 
       return parsed as JsonObject;
     } catch (error) {
@@ -692,13 +716,89 @@ export class AgentService {
     return typeof value;
   }
 
-  private extractClientUtteranceKeywordsForDebug(
-    source: JsonObject,
-  ): unknown[] | undefined {
-    const value =
-      source.client_utterance_keywords ?? source.clientUtteranceKeywords;
+  private summarizeKeywordFieldsFromRawResponse(
+    response: OpenAI.Responses.Response,
+  ): Record<string, unknown> {
+    const rawResponse = response as unknown as Record<string, unknown>;
+    const outputItems =
+      (rawResponse.output as Array<Record<string, unknown>> | undefined) ?? [];
+    const outputTextItems = outputItems.flatMap((item) => {
+      const contents = Array.isArray(item.content)
+        ? (item.content as Array<Record<string, unknown>>)
+        : [];
 
-    return Array.isArray(value) ? value : undefined;
+      return contents.flatMap((content) => {
+        if (
+          content.type === 'output_text' &&
+          typeof content.text === 'string' &&
+          content.text.trim()
+        ) {
+          return [this.summarizeKeywordFieldsFromText(content.text)];
+        }
+
+        return [];
+      });
+    });
+
+    return {
+      outputTextCount: outputTextItems.length,
+      outputTextItems,
+    };
+  }
+
+  private summarizeKeywordFieldsFromText(text: string): Record<string, unknown> {
+    const normalized = this.normalizeJsonText(text);
+
+    try {
+      const parsed = JSON.parse(normalized) as unknown;
+
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        return {
+          parseableObject: false,
+          preview: this.toSafePreview(text),
+        };
+      }
+
+      return this.summarizeKeywordFieldsFromObject(parsed as JsonObject);
+    } catch {
+      return {
+        parseableObject: false,
+        preview: this.toSafePreview(text),
+      };
+    }
+  }
+
+  private summarizeKeywordFieldsFromObject(
+    source: JsonObject,
+  ): Record<string, unknown> {
+    return {
+      client_utterance_keywords: this.describeArrayField(
+        source.client_utterance_keywords ?? source.clientUtteranceKeywords,
+      ),
+      client_keyword_contexts: this.describeArrayField(
+        source.client_keyword_contexts ?? source.clientKeywordContexts,
+      ),
+    };
+  }
+
+  private describeArrayField(value: unknown): {
+    exists: boolean;
+    length: number | null;
+    value: unknown;
+  } {
+    if (!Array.isArray(value)) {
+      return {
+        exists: value !== undefined,
+        length: null,
+        value,
+      };
+    }
+
+    return {
+      exists: true,
+      length: value.length,
+      value,
+    };
   }
 
   private asOptionalNumber(value: unknown): number | undefined {

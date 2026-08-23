@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SessionAnalysisResponseDto {
   @ApiProperty({ format: 'uuid' })
@@ -6,6 +6,12 @@ export class SessionAnalysisResponseDto {
 
   @ApiProperty({ example: 'completed' })
   status: string;
+
+  @ApiPropertyOptional({
+    example: 'realtime_note',
+    description: 'Agent가 판별한 문서 유형',
+  })
+  documentType?: string;
 
   @ApiProperty({
     example: '발화자 2',
@@ -32,4 +38,22 @@ export class SessionAnalysisResponseDto {
     additionalProperties: true,
   })
   analysisResult: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    example: '2026-04-15',
+    description: '상담 날짜',
+  })
+  counselingDate?: string;
+
+  @ApiPropertyOptional({
+    example: '원문 전체 텍스트',
+    description: 'realtime_note 문서의 원문 텍스트',
+  })
+  fullOriginalText?: string;
+
+  @ApiPropertyOptional({
+    example: '가독성을 높여 구조화한 텍스트',
+    description: 'realtime_note 문서의 구조화된 표시용 텍스트',
+  })
+  readableStructuredText?: string;
 }

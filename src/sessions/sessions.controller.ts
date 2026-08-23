@@ -52,6 +52,19 @@ export class SessionsController {
     return this.sessionsService.findOne(id);
   }
 
+  @Get(':sessionId/analysis')
+  @ApiOperation({ summary: '세션에 저장된 1차 분석 결과 조회' })
+  @ApiParam({ name: 'sessionId', format: 'uuid' })
+  @ApiOkResponse({ type: SessionAnalysisResponseDto })
+  @ApiNotFoundResponse({
+    description: '상담 세션 또는 저장된 분석 결과를 찾을 수 없습니다.',
+  })
+  getAnalysis(
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+  ): Promise<SessionAnalysisResponseDto> {
+    return this.sessionsService.getAnalysis(sessionId);
+  }
+
   @Get(':sessionId/keywords/:keyword')
   @ApiOperation({ summary: '세션 분석 결과에서 특정 키워드 상세 조회' })
   @ApiParam({ name: 'sessionId', format: 'uuid' })

@@ -67,6 +67,18 @@ export class SessionsService {
     return this.toResponse(session);
   }
 
+  async getAnalysis(id: string): Promise<SessionAnalysisResponseDto> {
+    const session = await this.findEntityOrThrow(id);
+
+    if (!session.initialAnalysisResult) {
+      throw new NotFoundException(
+        `Analysis result for session with id ${id} not found`,
+      );
+    }
+
+    return this.toAnalysisResponse(session.id, session.initialAnalysisResult);
+  }
+
   async getKeywordDetail(
     sessionId: string,
     keyword: string,
@@ -112,8 +124,11 @@ export class SessionsService {
     file: UploadedDocumentFile | undefined,
   ): Promise<SessionAnalysisResponseDto> {
     const session = await this.findEntityOrThrow(id);
+    const requestTag = `session:${session.id}:analysis`;
     const analysisResult =
-      await this.agentService.analyzeSessionTranscriptToJson(file);
+      await this.agentService.analyzeSessionTranscriptToJson(file, {
+        requestTag,
+      });
     const clientSpeakerLabel = this.getStringField(
       analysisResult,
       'client_speaker_label',
@@ -122,12 +137,13 @@ export class SessionsService {
       analysisResult,
       'counselor_speaker_label',
     );
+    const documentType = this.getStringField(analysisResult, 'document_type');
     const speakers = this.collectSpeakerLabels(analysisResult, {
       clientSpeakerLabel,
       counselorSpeakerLabel,
     });
 
-    if (!speakers.length) {
+    if (documentType !== 'realtime_note' && !speakers.length) {
       throw new BadGatewayException(
         'Agent analysis did not include identifiable speaker labels',
       );
@@ -137,26 +153,25 @@ export class SessionsService {
       initialAnalysisResult: analysisResult,
       clientSpeakerLabel,
     });
-      this.logger.warn(
-        `=== DB SAVE DATA === ${JSON.stringify({
-          sessionId: session.id,
-          clientSpeakerLabel,
-          clientUtteranceKeywords:
-            analysisResult.client_utterance_keywords ??
-            analysisResult.clientUtteranceKeywords,
-          initialAnalysisResult: analysisResult,
-        })}`,
-      );
-    await this.sessionsRepository.save(updatedSession);
+    this.logger.warn(
+      `=== DB SAVE PRE === ${JSON.stringify({
+        requestTag,
+        sessionId: session.id,
+        ...this.summarizeAnalysisKeywordFields(analysisResult),
+      })}`,
+    );
+    const savedSession = await this.sessionsRepository.save(updatedSession);
+    this.logger.warn(
+      `=== DB SAVE POST === ${JSON.stringify({
+        requestTag,
+        sessionId: savedSession.id,
+        ...this.summarizeAnalysisKeywordFields(
+          savedSession.initialAnalysisResult ?? undefined,
+        ),
+      })}`,
+    );
 
-    return {
-      sessionId: updatedSession.id,
-      status: 'completed',
-      clientSpeakerLabel,
-      counselorSpeakerLabel,
-      speakers,
-      analysisResult,
-    };
+    return this.toAnalysisResponse(savedSession.id, analysisResult);
   }
 
   async selectClientSpeaker(
@@ -297,6 +312,47 @@ export class SessionsService {
       clientSpeakerLabel: session.clientSpeakerLabel ?? null,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+    };
+  }
+
+  private toAnalysisResponse(
+    sessionId: string,
+    analysisResult: Record<string, unknown>,
+  ): SessionAnalysisResponseDto {
+    const documentType = this.getStringField(analysisResult, 'document_type');
+    const clientSpeakerLabel = this.getStringField(
+      analysisResult,
+      'client_speaker_label',
+    );
+    const counselorSpeakerLabel = this.getStringField(
+      analysisResult,
+      'counselor_speaker_label',
+    );
+    const speakers = this.collectSpeakerLabels(analysisResult, {
+      clientSpeakerLabel,
+      counselorSpeakerLabel,
+    });
+    const counselingDate = this.getStringField(analysisResult, 'counseling_date');
+    const fullOriginalText = this.getStringField(
+      analysisResult,
+      'full_original_text',
+    );
+    const readableStructuredText = this.getStringField(
+      analysisResult,
+      'readable_structured_text',
+    );
+
+    return {
+      sessionId,
+      status: 'completed',
+      clientSpeakerLabel,
+      counselorSpeakerLabel,
+      speakers,
+      analysisResult,
+      ...(documentType ? { documentType } : {}),
+      ...(counselingDate ? { counselingDate } : {}),
+      ...(fullOriginalText ? { fullOriginalText } : {}),
+      ...(readableStructuredText ? { readableStructuredText } : {}),
     };
   }
 
@@ -580,5 +636,38 @@ export class SessionsService {
 
       return normalized ? [normalized] : [];
     });
+  }
+
+  private summarizeAnalysisKeywordFields(
+    source: Record<string, unknown> | undefined,
+  ): Record<string, unknown> {
+    return {
+      client_utterance_keywords: this.describeArrayField(
+        source?.client_utterance_keywords ?? source?.clientUtteranceKeywords,
+      ),
+      client_keyword_contexts: this.describeArrayField(
+        source?.client_keyword_contexts ?? source?.clientKeywordContexts,
+      ),
+    };
+  }
+
+  private describeArrayField(value: unknown): {
+    exists: boolean;
+    length: number | null;
+    value: unknown;
+  } {
+    if (!Array.isArray(value)) {
+      return {
+        exists: value !== undefined,
+        length: null,
+        value,
+      };
+    }
+
+    return {
+      exists: true,
+      length: value.length,
+      value,
+    };
   }
 }

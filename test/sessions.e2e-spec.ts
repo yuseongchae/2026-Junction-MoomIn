@@ -10,7 +10,8 @@ describe('SessionsController (e2e)', () => {
   let app: INestApplication<App>;
   const sessionsService = {
     findOne: jest.fn(),
-      getKeywordDetail: jest.fn(),
+    getAnalysis: jest.fn(),
+    getKeywordDetail: jest.fn(),
     analyzeSessionDocument: jest.fn(),
     selectClientSpeaker: jest.fn(),
     update: jest.fn(),
@@ -60,6 +61,45 @@ describe('SessionsController (e2e)', () => {
         analysisResult: {
           client_speaker_label: '발화자 2',
           counselor_speaker_label: '발화자 1',
+        },
+      });
+  });
+
+  it('GET /api/sessions/:sessionId/analysis returns stored realtime note analysis', async () => {
+    sessionsService.getAnalysis.mockResolvedValue({
+      sessionId: '11111111-1111-1111-1111-111111111111',
+      status: 'completed',
+      documentType: 'realtime_note',
+      clientSpeakerLabel: null,
+      counselorSpeakerLabel: null,
+      speakers: [],
+      counselingDate: '2026-04-15',
+      fullOriginalText: '원문 전체',
+      readableStructuredText: '구조화 텍스트',
+      analysisResult: {
+        document_type: 'realtime_note',
+        full_original_text: '원문 전체',
+        readable_structured_text: '구조화 텍스트',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .get('/api/sessions/11111111-1111-1111-1111-111111111111/analysis')
+      .expect(200)
+      .expect({
+        sessionId: '11111111-1111-1111-1111-111111111111',
+        status: 'completed',
+        documentType: 'realtime_note',
+        clientSpeakerLabel: null,
+        counselorSpeakerLabel: null,
+        speakers: [],
+        counselingDate: '2026-04-15',
+        fullOriginalText: '원문 전체',
+        readableStructuredText: '구조화 텍스트',
+        analysisResult: {
+          document_type: 'realtime_note',
+          full_original_text: '원문 전체',
+          readable_structured_text: '구조화 텍스트',
         },
       });
   });
