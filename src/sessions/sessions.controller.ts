@@ -101,6 +101,39 @@ export class SessionsController {
     response.send(originalDocument.buffer);
   }
 
+  @Get(':sessionId/original-document/preview')
+  @ApiOperation({ summary: '세션의 원본 업로드 문서 미리보기 조회' })
+  @ApiParam({ name: 'sessionId', format: 'uuid' })
+  @ApiProduces('image/jpeg', 'image/png')
+  @ApiOkResponse({
+    description: '브라우저 표시용 미리보기 바이너리를 반환합니다.',
+    schema: {
+      type: 'string',
+      format: 'binary',
+    },
+  })
+  @ApiNotFoundResponse({
+    description: '상담 세션 또는 원본 문서를 찾을 수 없습니다.',
+  })
+  async getOriginalDocumentPreview(
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const previewDocument =
+      await this.sessionsService.getOriginalDocumentPreview(sessionId);
+
+    response.setHeader('Content-Type', previewDocument.mimeType);
+    response.setHeader(
+      'Content-Disposition',
+      this.buildInlineContentDisposition(previewDocument.fileName),
+    );
+    response.setHeader(
+      'Content-Length',
+      String(previewDocument.contentLength),
+    );
+    response.send(previewDocument.buffer);
+  }
+
   @Get(':sessionId/keywords/:keyword')
   @ApiOperation({ summary: '세션 분석 결과에서 특정 키워드 상세 조회' })
   @ApiParam({ name: 'sessionId', format: 'uuid' })

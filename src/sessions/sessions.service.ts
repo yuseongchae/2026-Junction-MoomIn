@@ -5,12 +5,14 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import heicConvert = require('heic-convert');
 import { Repository } from 'typeorm';
 import { AgentService, UploadedDocumentFile } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
@@ -135,6 +137,59 @@ export class SessionsService {
 
       throw new InternalServerErrorException(
         'Failed to read original document',
+      );
+    }
+  }
+
+  async getOriginalDocumentPreview(sessionId: string): Promise<{
+    fileName: string;
+    mimeType: string;
+    buffer: Buffer;
+    contentLength: number;
+  }> {
+    const originalDocument = await this.getOriginalDocument(sessionId);
+
+    if (
+      this.isBrowserDisplayableMimeType(originalDocument.mimeType) &&
+      !this.needsHeicPreviewConversion(
+        originalDocument.mimeType,
+        originalDocument.fileName,
+      )
+    ) {
+      return originalDocument;
+    }
+
+    if (
+      !this.needsHeicPreviewConversion(
+        originalDocument.mimeType,
+        originalDocument.fileName,
+      )
+    ) {
+      throw new UnsupportedMediaTypeException(
+        'Original document preview is not supported for this file type',
+      );
+    }
+
+    try {
+      const converted = await heicConvert({
+        buffer: originalDocument.buffer,
+        format: 'JPEG',
+        quality: 0.9,
+      });
+      const convertedBuffer = Buffer.from(converted);
+
+      return {
+        fileName: this.toPreviewFileName(originalDocument.fileName),
+        mimeType: 'image/jpeg',
+        buffer: convertedBuffer,
+        contentLength: convertedBuffer.length,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to convert original document preview for session ${sessionId}: ${this.getSafeErrorMessage(error)}`,
+      );
+      throw new InternalServerErrorException(
+        'Failed to generate original document preview',
       );
     }
   }
@@ -784,6 +839,46 @@ export class SessionsService {
     }
 
     return 'code' in error && error.code === 'ENOENT';
+  }
+
+  private isBrowserDisplayableMimeType(mimeType: string): boolean {
+    return [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/bmp',
+      'image/svg+xml',
+    ].includes(mimeType.toLowerCase());
+  }
+
+  private needsHeicPreviewConversion(
+    mimeType: string,
+    fileName: string,
+  ): boolean {
+    const normalizedMimeType = mimeType.toLowerCase();
+    const extension = path.extname(fileName).toLowerCase();
+
+    return (
+      normalizedMimeType === 'image/heic' ||
+      normalizedMimeType === 'image/heif' ||
+      extension === '.heic' ||
+      extension === '.heif'
+    );
+  }
+
+  private toPreviewFileName(fileName: string): string {
+    const parsedPath = path.parse(fileName);
+
+    return `${parsedPath.name || 'preview'}.jpg`;
+  }
+
+  private getSafeErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return 'unknown error';
   }
 
   private summarizeAnalysisKeywordFields(

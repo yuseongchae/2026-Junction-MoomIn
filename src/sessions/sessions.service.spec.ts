@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs/promises';
+import heicConvert = require('heic-convert');
 import { Repository } from 'typeorm';
 import { AgentService } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
@@ -17,6 +18,8 @@ jest.mock('node:fs/promises', () => ({
   readFile: jest.fn(),
   writeFile: jest.fn(),
 }));
+
+jest.mock('heic-convert', () => jest.fn());
 
 type MockRepository<T extends object> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -56,6 +59,7 @@ describe('SessionsService', () => {
     jest.mocked(fs.mkdir).mockResolvedValue(undefined);
     jest.mocked(fs.writeFile).mockResolvedValue(undefined);
     jest.mocked(fs.readFile).mockResolvedValue(Buffer.from('image-binary'));
+    jest.mocked(heicConvert).mockResolvedValue(Uint8Array.from([255, 216, 255]));
 
     service = new SessionsService(
       sessionsRepository as unknown as Repository<Session>,
@@ -451,6 +455,115 @@ describe('SessionsService', () => {
       });
     },
   );
+
+  it('converts heic original document to jpeg preview', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'memo2.heic',
+        mimeType: 'image/heic',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('real-heic'));
+    jest
+      .mocked(heicConvert)
+      .mockResolvedValueOnce(Uint8Array.from([255, 216, 255, 224]));
+
+    await expect(
+      service.getOriginalDocumentPreview('session-id'),
+    ).resolves.toEqual({
+      fileName: 'memo2.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([255, 216, 255, 224]),
+      contentLength: 4,
+    });
+    expect(heicConvert).toHaveBeenCalledWith({
+      buffer: Buffer.from('real-heic'),
+      format: 'JPEG',
+      quality: 0.9,
+    });
+  });
+
+  it('returns jpeg original document as-is for preview', async () => {
+    jest.mocked(heicConvert).mockClear();
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'memo2.jpg',
+        mimeType: 'image/jpeg',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('jpeg-binary'));
+
+    await expect(
+      service.getOriginalDocumentPreview('session-id'),
+    ).resolves.toEqual({
+      fileName: 'memo2.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('jpeg-binary'),
+      contentLength: Buffer.byteLength('jpeg-binary'),
+    });
+    expect(heicConvert).not.toHaveBeenCalled();
+  });
+
+  it('rejects preview for unsupported original document type', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'memo2.pdf',
+        mimeType: 'application/pdf',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('pdf-binary'));
+
+    await expect(
+      service.getOriginalDocumentPreview('session-id'),
+    ).rejects.toThrow('Original document preview is not supported for this file type');
+  });
+
+  it('rejects preview when heic conversion fails', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'memo2.heic',
+        mimeType: 'image/heic',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('real-heic'));
+    jest.mocked(heicConvert).mockRejectedValueOnce(new Error('decode failed'));
+
+    await expect(
+      service.getOriginalDocumentPreview('session-id'),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+  });
 
   it('rejects original document lookup when no stored document exists', async () => {
     sessionsRepository.findOneBy!.mockResolvedValue({

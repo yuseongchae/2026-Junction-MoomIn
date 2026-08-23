@@ -12,6 +12,7 @@ describe('SessionsController (e2e)', () => {
     findOne: jest.fn(),
     getAnalysis: jest.fn(),
     getOriginalDocument: jest.fn(),
+    getOriginalDocumentPreview: jest.fn(),
     getKeywordDetail: jest.fn(),
     analyzeSessionDocument: jest.fn(),
     selectClientSpeaker: jest.fn(),
@@ -138,6 +139,41 @@ describe('SessionsController (e2e)', () => {
   it('GET /api/sessions/:sessionId/original-document rejects invalid uuid', async () => {
     await request(app.getHttpServer())
       .get('/api/sessions/invalid-uuid/original-document')
+      .expect(400);
+  });
+
+  it('GET /api/sessions/:sessionId/original-document/preview returns jpeg binary', async () => {
+    sessionsService.getOriginalDocumentPreview.mockResolvedValue({
+      fileName: 'memo2.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([255, 216, 255, 224]),
+      contentLength: 4,
+    });
+
+    await request(app.getHttpServer())
+      .get(
+        '/api/sessions/11111111-1111-1111-1111-111111111111/original-document/preview',
+      )
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      })
+      .expect(200)
+      .expect('Content-Type', 'image/jpeg')
+      .expect('Content-Disposition', "inline; filename*=UTF-8''memo2.jpg")
+      .expect((response) => {
+        expect(Buffer.isBuffer(response.body)).toBe(true);
+        expect(response.body.equals(Buffer.from([255, 216, 255, 224]))).toBe(
+          true,
+        );
+      });
+  });
+
+  it('GET /api/sessions/:sessionId/original-document/preview rejects invalid uuid', async () => {
+    await request(app.getHttpServer())
+      .get('/api/sessions/invalid-uuid/original-document/preview')
       .expect(400);
   });
 

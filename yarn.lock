@@ -1761,6 +1761,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/heic-convert@npm:^2":
+  version: 2.1.1
+  resolution: "@types/heic-convert@npm:2.1.1"
+  checksum: 10c0/7d937ae85e034e30254fa241d3c6bf5136f2a4a9e813556e2ddad67ba07d85a9796c5fc0b18db09b3767314a8635ee73185ed6f8548a8d1417ec42b66b135d29
+  languageName: node
+  linkType: hard
+
 "@types/http-errors@npm:*":
   version: 2.0.5
   resolution: "@types/http-errors@npm:2.0.5"
@@ -4339,6 +4346,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"heic-convert@npm:^2.1.0":
+  version: 2.1.0
+  resolution: "heic-convert@npm:2.1.0"
+  dependencies:
+    heic-decode: "npm:^2.0.0"
+    jpeg-js: "npm:^0.4.4"
+    pngjs: "npm:^6.0.0"
+  checksum: 10c0/78fe882b2fc5d76d9d2b577979cd234cbeab80c95d4cd4e7b46b949eb0a1ee80d73a87901190db855a3546a8109c289d8c81b0f5d2ab29774409627f8d19c698
+  languageName: node
+  linkType: hard
+
+"heic-decode@npm:^2.0.0":
+  version: 2.1.0
+  resolution: "heic-decode@npm:2.1.0"
+  dependencies:
+    libheif-js: "npm:^1.19.8"
+  checksum: 10c0/3d5bd31f64346337dd33b57d9a7a54064a45921f35d92c32c23f541235d13e7497cb754dc1e4ef92c85367d25f40b6b17680f33448ddf0298399cc3d19d323c0
+  languageName: node
+  linkType: hard
+
 "html-escaper@npm:^2.0.0":
   version: 2.0.2
   resolution: "html-escaper@npm:2.0.2"
@@ -5072,6 +5099,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jpeg-js@npm:^0.4.4":
+  version: 0.4.4
+  resolution: "jpeg-js@npm:0.4.4"
+  checksum: 10c0/4d0d5097f8e55d8bbce6f1dc32ffaf3f43f321f6222e4e6490734fdc6d005322e3bd6fb992c2df7f5b587343b1441a1c333281dc3285bc9116e369fd2a2b43a7
+  languageName: node
+  linkType: hard
+
 "js-tokens@npm:^4.0.0":
   version: 4.0.0
   resolution: "js-tokens@npm:4.0.0"
@@ -5209,6 +5243,13 @@ __metadata:
     prelude-ls: "npm:^1.2.1"
     type-check: "npm:~0.4.0"
   checksum: 10c0/effb03cad7c89dfa5bd4f6989364bfc79994c2042ec5966cb9b95990e2edee5cd8969ddf42616a0373ac49fac1403437deaf6e9050fbbaa3546093a59b9ac94e
+  languageName: node
+  linkType: hard
+
+"libheif-js@npm:^1.19.8":
+  version: 1.19.8
+  resolution: "libheif-js@npm:1.19.8"
+  checksum: 10c0/a063c44a376a98b987e1488845e1126a63c6443e673ff8db1866e65dafebd2b670da3ee6b797928d7d15fa5253c49be779f7319025984d2e11e6aa8ec40430ca
   languageName: node
   linkType: hard
 
@@ -5511,6 +5552,7 @@ __metadata:
     "@nestjs/testing": "npm:^11.0.1"
     "@nestjs/typeorm": "npm:^11.0.3"
     "@types/express": "npm:^5.0.0"
+    "@types/heic-convert": "npm:^2"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^24.0.0"
     "@types/pg": "npm:^8"
@@ -5521,6 +5563,7 @@ __metadata:
     eslint-config-prettier: "npm:^10.0.1"
     eslint-plugin-prettier: "npm:^5.2.2"
     globals: "npm:^17.0.0"
+    heic-convert: "npm:^2.1.0"
     jest: "npm:^30.0.0"
     openai: "npm:^7.5.0"
     pg: "npm:^8.23.0"
@@ -6033,6 +6076,13 @@ __metadata:
   version: 8.0.0
   resolution: "pluralize@npm:8.0.0"
   checksum: 10c0/2044cfc34b2e8c88b73379ea4a36fc577db04f651c2909041b054c981cd863dd5373ebd030123ab058d194ae615d3a97cfdac653991e499d10caf592e8b3dc33
+  languageName: node
+  linkType: hard
+
+"pngjs@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "pngjs@npm:6.0.0"
+  checksum: 10c0/ac23ea329b1881d1a10575aff58116dc27b894ec3f5b84ba15c7f527d21e609fbce7ba16d48f8ccb86c7ce45ceed622472765476ab2875949d4bec55e153f87a
   languageName: node
   linkType: hard
 
