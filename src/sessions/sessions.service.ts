@@ -2,13 +2,19 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { AgentService, UploadedDocumentFile } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
+import { Document, DocumentStatus } from '@/documents/entities/document.entity';
 import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
 import { CreateSessionDto } from '@/sessions/dto/create-session.dto';
 import { KeywordDetailResponseDto } from '@/sessions/dto/keyword-detail-response.dto';
@@ -21,14 +27,24 @@ import { Session } from '@/sessions/entities/session.entity';
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
+  private readonly originalDocumentsDir: string;
 
   constructor(
     @InjectRepository(Session)
     private readonly sessionsRepository: Repository<Session>,
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    @InjectRepository(Document)
+    private readonly documentsRepository: Repository<Document>,
+    private readonly configService: ConfigService,
     private readonly agentService: AgentService,
-  ) {}
+  ) {
+    this.originalDocumentsDir = path.resolve(
+      process.cwd(),
+      this.configService.get<string>('ORIGINAL_DOCUMENTS_DIR') ??
+        'storage/original-documents',
+    );
+  }
 
   async create(
     clientId: string,
@@ -79,6 +95,50 @@ export class SessionsService {
     return this.toAnalysisResponse(session.id, session.initialAnalysisResult);
   }
 
+  async getOriginalDocument(sessionId: string): Promise<{
+    fileName: string;
+    mimeType: string;
+    buffer: Buffer;
+    contentLength: number;
+  }> {
+    await this.findEntityOrThrow(sessionId);
+
+    const documents = await this.documentsRepository.find({
+      where: { sessionId },
+      order: { createdAt: 'DESC' },
+    });
+    const originalDocument = documents.find(
+      (document) => typeof document.fileUrl === 'string' && document.fileUrl,
+    );
+
+    if (!originalDocument?.fileUrl) {
+      throw new NotFoundException('Original document not found');
+    }
+
+    const filePath = this.resolveOriginalDocumentPath(originalDocument.fileUrl);
+
+    try {
+      const buffer = await fs.readFile(filePath);
+
+      return {
+        fileName: originalDocument.fileName,
+        mimeType:
+          this.getNonEmptyString(originalDocument.mimeType) ??
+          'application/octet-stream',
+        buffer,
+        contentLength: buffer.length,
+      };
+    } catch (error) {
+      if (this.isMissingFileError(error)) {
+        throw new NotFoundException('Original document not found');
+      }
+
+      throw new InternalServerErrorException(
+        'Failed to read original document',
+      );
+    }
+  }
+
   async getKeywordDetail(
     sessionId: string,
     keyword: string,
@@ -125,10 +185,17 @@ export class SessionsService {
   ): Promise<SessionAnalysisResponseDto> {
     const session = await this.findEntityOrThrow(id);
     const requestTag = `session:${session.id}:analysis`;
-    const analysisResult =
-      await this.agentService.analyzeSessionTranscriptToJson(file, {
+    const savedOriginalDocument = await this.saveOriginalDocument(session.id, file);
+    let analysisResult: Record<string, unknown>;
+
+    try {
+      analysisResult = await this.agentService.analyzeSessionTranscriptToJson(file, {
         requestTag,
       });
+    } catch (error) {
+      await this.updateDocumentStatus(savedOriginalDocument, DocumentStatus.FAILED);
+      throw error;
+    }
     const clientSpeakerLabel = this.getStringField(
       analysisResult,
       'client_speaker_label',
@@ -161,6 +228,7 @@ export class SessionsService {
       })}`,
     );
     const savedSession = await this.sessionsRepository.save(updatedSession);
+    await this.updateDocumentStatus(savedOriginalDocument, DocumentStatus.COMPLETED);
     this.logger.warn(
       `=== DB SAVE POST === ${JSON.stringify({
         requestTag,
@@ -354,6 +422,52 @@ export class SessionsService {
       ...(fullOriginalText ? { fullOriginalText } : {}),
       ...(readableStructuredText ? { readableStructuredText } : {}),
     };
+  }
+
+  private async saveOriginalDocument(
+    sessionId: string,
+    file: UploadedDocumentFile | undefined,
+  ): Promise<Document> {
+    if (!file) {
+      throw new BadRequestException('file is required');
+    }
+
+    const originalFileName = this.getSafeOriginalFileName(file.originalname);
+    const storageKey = this.buildOriginalDocumentStorageKey(
+      sessionId,
+      originalFileName,
+    );
+    const filePath = this.resolveOriginalDocumentPath(storageKey);
+
+    try {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, file.buffer);
+    } catch {
+      throw new InternalServerErrorException('Failed to save original document');
+    }
+
+    const document = this.documentsRepository.create({
+      sessionId,
+      fileName: originalFileName,
+      mimeType:
+        this.getNonEmptyString(file.mimetype) ?? 'application/octet-stream',
+      fileUrl: storageKey,
+      status: DocumentStatus.UPLOADED,
+    });
+
+    return this.documentsRepository.save(document);
+  }
+
+  private async updateDocumentStatus(
+    document: Document,
+    status: DocumentStatus,
+  ): Promise<void> {
+    await this.documentsRepository
+      .save({
+        ...document,
+        status,
+      })
+      .catch(() => undefined);
   }
 
   private collectSpeakerLabels(
@@ -636,6 +750,40 @@ export class SessionsService {
 
       return normalized ? [normalized] : [];
     });
+  }
+
+  private buildOriginalDocumentStorageKey(
+    sessionId: string,
+    originalFileName: string,
+  ): string {
+    const extension = path.extname(originalFileName);
+
+    return path.join(
+      sessionId,
+      `${Date.now()}-${randomUUID()}${extension}`,
+    );
+  }
+
+  private resolveOriginalDocumentPath(storageKey: string): string {
+    return path.resolve(this.originalDocumentsDir, storageKey);
+  }
+
+  private getSafeOriginalFileName(originalName: string): string {
+    const trimmedName = originalName.trim();
+
+    if (!trimmedName) {
+      return 'document';
+    }
+
+    return path.basename(trimmedName);
+  }
+
+  private isMissingFileError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    return 'code' in error && error.code === 'ENOENT';
   }
 
   private summarizeAnalysisKeywordFields(

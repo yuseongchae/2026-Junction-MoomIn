@@ -11,6 +11,7 @@ describe('SessionsController (e2e)', () => {
   const sessionsService = {
     findOne: jest.fn(),
     getAnalysis: jest.fn(),
+    getOriginalDocument: jest.fn(),
     getKeywordDetail: jest.fn(),
     analyzeSessionDocument: jest.fn(),
     selectClientSpeaker: jest.fn(),
@@ -102,6 +103,42 @@ describe('SessionsController (e2e)', () => {
           readable_structured_text: '구조화 텍스트',
         },
       });
+  });
+
+  it('GET /api/sessions/:sessionId/original-document returns binary image', async () => {
+    sessionsService.getOriginalDocument.mockResolvedValue({
+      fileName: '상담일지.heic',
+      mimeType: 'image/heic',
+      buffer: Buffer.from('image-bytes'),
+      contentLength: Buffer.byteLength('image-bytes'),
+    });
+
+    await request(app.getHttpServer())
+      .get(
+        '/api/sessions/11111111-1111-1111-1111-111111111111/original-document',
+      )
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      })
+      .expect(200)
+      .expect('Content-Type', 'image/heic')
+      .expect(
+        'Content-Disposition',
+        "inline; filename*=UTF-8''%EC%83%81%EB%8B%B4%EC%9D%BC%EC%A7%80.heic",
+      )
+      .expect((response) => {
+        expect(Buffer.isBuffer(response.body)).toBe(true);
+        expect(response.body.equals(Buffer.from('image-bytes'))).toBe(true);
+      });
+  });
+
+  it('GET /api/sessions/:sessionId/original-document rejects invalid uuid', async () => {
+    await request(app.getHttpServer())
+      .get('/api/sessions/invalid-uuid/original-document')
+      .expect(400);
   });
 
   it('POST /api/sessions/:sessionId/speaker-selection validates request body', async () => {

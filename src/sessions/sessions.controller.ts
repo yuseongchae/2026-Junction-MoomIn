@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -23,9 +24,11 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Response } from 'express';
 import { UploadedDocumentFile } from '@/agent/agent.service';
 import { AnalyzeSessionDocumentDto } from '@/sessions/dto/analyze-session-document.dto';
 import { ClientSpeakerSelectionResponseDto } from '@/sessions/dto/client-speaker-selection-response.dto';
@@ -63,6 +66,39 @@ export class SessionsController {
     @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
   ): Promise<SessionAnalysisResponseDto> {
     return this.sessionsService.getAnalysis(sessionId);
+  }
+
+  @Get(':sessionId/original-document')
+  @ApiOperation({ summary: '세션의 원본 업로드 문서 조회' })
+  @ApiParam({ name: 'sessionId', format: 'uuid' })
+  @ApiProduces('image/jpeg', 'image/png', 'image/heic', 'image/heif')
+  @ApiOkResponse({
+    description: '원본 문서 바이너리를 반환합니다.',
+    schema: {
+      type: 'string',
+      format: 'binary',
+    },
+  })
+  @ApiNotFoundResponse({
+    description: '상담 세션 또는 원본 문서를 찾을 수 없습니다.',
+  })
+  async getOriginalDocument(
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const originalDocument =
+      await this.sessionsService.getOriginalDocument(sessionId);
+
+    response.setHeader('Content-Type', originalDocument.mimeType);
+    response.setHeader(
+      'Content-Disposition',
+      this.buildInlineContentDisposition(originalDocument.fileName),
+    );
+    response.setHeader(
+      'Content-Length',
+      String(originalDocument.contentLength),
+    );
+    response.send(originalDocument.buffer);
   }
 
   @Get(':sessionId/keywords/:keyword')
@@ -148,5 +184,11 @@ export class SessionsController {
   @ApiNotFoundResponse({ description: '상담 세션을 찾을 수 없습니다.' })
   async remove(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
     await this.sessionsService.remove(id);
+  }
+
+  private buildInlineContentDisposition(fileName: string): string {
+    const encodedFileName = encodeURIComponent(fileName);
+
+    return `inline; filename*=UTF-8''${encodedFileName}`;
   }
 }

@@ -1,12 +1,22 @@
 import {
   BadRequestException,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as fs from 'node:fs/promises';
 import { Repository } from 'typeorm';
 import { AgentService } from '@/agent/agent.service';
 import { Client } from '@/clients/entities/client.entity';
+import { Document, DocumentStatus } from '@/documents/entities/document.entity';
 import { Session } from '@/sessions/entities/session.entity';
 import { SessionsService } from '@/sessions/sessions.service';
+
+jest.mock('node:fs/promises', () => ({
+  mkdir: jest.fn(),
+  readFile: jest.fn(),
+  writeFile: jest.fn(),
+}));
 
 type MockRepository<T extends object> = Partial<
   Record<keyof Repository<T>, jest.Mock>
@@ -16,6 +26,8 @@ describe('SessionsService', () => {
   let service: SessionsService;
   let sessionsRepository: MockRepository<Session>;
   let clientsRepository: MockRepository<Client>;
+  let documentsRepository: MockRepository<Document>;
+  let configService: Partial<Record<keyof ConfigService, jest.Mock>>;
   let agentService: Partial<Record<keyof AgentService, jest.Mock>>;
 
   beforeEach(() => {
@@ -30,13 +42,26 @@ describe('SessionsService', () => {
     clientsRepository = {
       findOneBy: jest.fn(),
     };
+    documentsRepository = {
+      create: jest.fn(),
+      save: jest.fn(),
+      find: jest.fn(),
+    };
+    configService = {
+      get: jest.fn().mockReturnValue('storage/original-documents'),
+    };
     agentService = {
       analyzeSessionTranscriptToJson: jest.fn(),
     };
+    jest.mocked(fs.mkdir).mockResolvedValue(undefined);
+    jest.mocked(fs.writeFile).mockResolvedValue(undefined);
+    jest.mocked(fs.readFile).mockResolvedValue(Buffer.from('image-binary'));
 
     service = new SessionsService(
       sessionsRepository as unknown as Repository<Session>,
       clientsRepository as unknown as Repository<Client>,
+      documentsRepository as unknown as Repository<Document>,
+      configService as unknown as ConfigService,
       agentService as unknown as AgentService,
     );
   });
@@ -192,6 +217,22 @@ describe('SessionsService', () => {
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
+    documentsRepository.create!.mockReturnValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'transcript.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
+    documentsRepository.save!.mockResolvedValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'transcript.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
     agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
       analysisResult,
     );
@@ -235,6 +276,22 @@ describe('SessionsService', () => {
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
+    documentsRepository.create!.mockReturnValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'transcript.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
+    documentsRepository.save!.mockResolvedValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'transcript.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
     agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
       analysisResult,
     );
@@ -280,6 +337,22 @@ describe('SessionsService', () => {
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
+    documentsRepository.create!.mockReturnValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'note.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
+    documentsRepository.save!.mockResolvedValue({
+      id: 'document-id',
+      sessionId: 'session-id',
+      fileName: 'note.txt',
+      mimeType: 'application/octet-stream',
+      fileUrl: 'session-id/storage-key',
+      status: DocumentStatus.UPLOADED,
+    });
     agentService.analyzeSessionTranscriptToJson!.mockResolvedValue(
       analysisResult,
     );
@@ -343,6 +416,96 @@ describe('SessionsService', () => {
       fullOriginalText: '원문 전체',
       readableStructuredText: '보기 좋은 구조화 텍스트',
     });
+  });
+
+  it.each([
+    ['image/jpeg'],
+    ['image/png'],
+    ['image/heic'],
+    ['image/heif'],
+  ])(
+    'returns original document binary while preserving mime type %s',
+    async (mimeType) => {
+      sessionsRepository.findOneBy!.mockResolvedValue({
+        id: 'session-id',
+        clientId: 'client-id',
+      });
+      documentsRepository.find!.mockResolvedValue([
+        {
+          id: 'document-id',
+          sessionId: 'session-id',
+          fileName: `handwritten${mimeType === 'image/png' ? '.png' : '.heic'}`,
+          mimeType,
+          fileUrl: 'session-id/file-key',
+          status: DocumentStatus.COMPLETED,
+        },
+      ]);
+      jest.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('img'));
+
+      await expect(service.getOriginalDocument('session-id')).resolves.toEqual({
+        fileName:
+          mimeType === 'image/png' ? 'handwritten.png' : 'handwritten.heic',
+        mimeType,
+        buffer: Buffer.from('img'),
+        contentLength: 3,
+      });
+    },
+  );
+
+  it('rejects original document lookup when no stored document exists', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([]);
+
+    await expect(
+      service.getOriginalDocument('session-id'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects original document lookup when storage file is missing', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'handwritten.heic',
+        mimeType: 'image/heic',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockRejectedValueOnce({ code: 'ENOENT' });
+
+    await expect(
+      service.getOriginalDocument('session-id'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects original document lookup when storage read fails', async () => {
+    sessionsRepository.findOneBy!.mockResolvedValue({
+      id: 'session-id',
+      clientId: 'client-id',
+    });
+    documentsRepository.find!.mockResolvedValue([
+      {
+        id: 'document-id',
+        sessionId: 'session-id',
+        fileName: 'handwritten.heic',
+        mimeType: 'image/heic',
+        fileUrl: 'session-id/file-key',
+        status: DocumentStatus.COMPLETED,
+      },
+    ]);
+    jest.mocked(fs.readFile).mockRejectedValueOnce(new Error('permission denied'));
+
+    await expect(
+      service.getOriginalDocument('session-id'),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
   });
 
   it('rejects speaker selection when first analysis is missing', async () => {

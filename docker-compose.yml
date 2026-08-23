@@ -24,8 +24,11 @@ services:
       - .env
     environment:
       DATABASE_HOST: postgres
+      ORIGINAL_DOCUMENTS_DIR: /app/storage/original-documents
     ports:
       - '${PORT:-3000}:3000'
+    volumes:
+      - ./storage:/app/storage
 
 volumes:
   postgres_data:
