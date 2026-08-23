@@ -26,6 +26,18 @@ import { SelectClientSpeakerDto } from '@/sessions/dto/select-client-speaker.dto
 import { UpdateSessionDto } from '@/sessions/dto/update-session.dto';
 import { Session } from '@/sessions/entities/session.entity';
 
+const MOCK_CLIENT_UTTERANCE_KEYWORDS = [
+  { keyword: '과제', count: 6 },
+  { keyword: '그냥', count: 5 },
+  { keyword: '성적', count: 4 },
+  { keyword: '친구', count: 4 },
+  { keyword: '엄마', count: 4 },
+  { keyword: '생각', count: 3 },
+  { keyword: '동생', count: 3 },
+  { keyword: '통화', count: 2 },
+  { keyword: '학기', count: 2 },
+] as const;
+
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
@@ -244,9 +256,16 @@ export class SessionsService {
     let analysisResult: Record<string, unknown>;
 
     try {
-      analysisResult = await this.agentService.analyzeSessionTranscriptToJson(file, {
-        requestTag,
-      });
+      const agentResult = await this.agentService.analyzeSessionTranscriptToJson(
+        file,
+        {
+          requestTag,
+        },
+      );
+      analysisResult = {
+        ...agentResult,
+        client_utterance_keywords: [...MOCK_CLIENT_UTTERANCE_KEYWORDS],
+      };
     } catch (error) {
       await this.updateDocumentStatus(savedOriginalDocument, DocumentStatus.FAILED);
       throw error;

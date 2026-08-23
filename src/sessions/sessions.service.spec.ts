@@ -25,6 +25,18 @@ type MockRepository<T extends object> = Partial<
   Record<keyof Repository<T>, jest.Mock>
 >;
 
+const MOCK_CLIENT_UTTERANCE_KEYWORDS = [
+  { keyword: '과제', count: 6 },
+  { keyword: '그냥', count: 5 },
+  { keyword: '성적', count: 4 },
+  { keyword: '친구', count: 4 },
+  { keyword: '엄마', count: 4 },
+  { keyword: '생각', count: 3 },
+  { keyword: '동생', count: 3 },
+  { keyword: '통화', count: 2 },
+  { keyword: '학기', count: 2 },
+];
+
 describe('SessionsService', () => {
   let service: SessionsService;
   let sessionsRepository: MockRepository<Session>;
@@ -214,10 +226,22 @@ describe('SessionsService', () => {
     const analysisResult = {
       client_speaker_label: '발화자 2',
       counselor_speaker_label: '발화자 1',
+      client_utterance_total_word_count: 81,
+      client_keyword_contexts: [
+        {
+          keyword: '과제',
+          contexts: ['문맥 1', '문맥 2'],
+        },
+      ],
+      client_utterance_keywords: [{ keyword: '원래값', count: 999 }],
       transcript: [
         { speakerLabel: '발화자 1', utteranceText: '오늘 어땠나요?' },
         { speakerLabel: '발화자 2', utteranceText: '잘 잤습니다.' },
       ],
+    };
+    const expectedAnalysisResult = {
+      ...analysisResult,
+      client_utterance_keywords: MOCK_CLIENT_UTTERANCE_KEYWORDS,
     };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
@@ -242,12 +266,12 @@ describe('SessionsService', () => {
     );
     sessionsRepository.merge!.mockReturnValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: '발화자 2',
     });
     sessionsRepository.save!.mockResolvedValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: '발화자 2',
     });
 
@@ -262,7 +286,11 @@ describe('SessionsService', () => {
       clientSpeakerLabel: '발화자 2',
       counselorSpeakerLabel: '발화자 1',
       speakers: ['발화자 2', '발화자 1'],
-      analysisResult,
+      analysisResult: expectedAnalysisResult,
+    });
+    expect(sessionsRepository.merge).toHaveBeenCalledWith(session, {
+      initialAnalysisResult: expectedAnalysisResult,
+      clientSpeakerLabel: '발화자 2',
     });
   });
 
@@ -278,6 +306,10 @@ describe('SessionsService', () => {
       client_speaker_label: '발화자 2',
       counselor_speaker_label: '발화자 1',
     };
+    const expectedAnalysisResult = {
+      ...analysisResult,
+      client_utterance_keywords: MOCK_CLIENT_UTTERANCE_KEYWORDS,
+    };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
     documentsRepository.create!.mockReturnValue({
@@ -301,12 +333,12 @@ describe('SessionsService', () => {
     );
     sessionsRepository.merge!.mockReturnValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: '발화자 2',
     });
     sessionsRepository.save!.mockResolvedValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: '발화자 2',
     });
 
@@ -322,7 +354,7 @@ describe('SessionsService', () => {
       clientSpeakerLabel: '발화자 2',
       counselorSpeakerLabel: '발화자 1',
       speakers: ['발화자 2', '발화자 1'],
-      analysisResult,
+      analysisResult: expectedAnalysisResult,
     });
   });
 
@@ -339,6 +371,10 @@ describe('SessionsService', () => {
       full_original_text: '원문 전체',
       readable_structured_text: '보기 좋은 구조화 텍스트',
     };
+    const expectedAnalysisResult = {
+      ...analysisResult,
+      client_utterance_keywords: MOCK_CLIENT_UTTERANCE_KEYWORDS,
+    };
 
     sessionsRepository.findOneBy!.mockResolvedValue(session);
     documentsRepository.create!.mockReturnValue({
@@ -362,12 +398,12 @@ describe('SessionsService', () => {
     );
     sessionsRepository.merge!.mockReturnValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: null,
     });
     sessionsRepository.save!.mockResolvedValue({
       ...session,
-      initialAnalysisResult: analysisResult,
+      initialAnalysisResult: expectedAnalysisResult,
       clientSpeakerLabel: null,
     });
 
@@ -383,7 +419,7 @@ describe('SessionsService', () => {
       clientSpeakerLabel: null,
       counselorSpeakerLabel: null,
       speakers: [],
-      analysisResult,
+      analysisResult: expectedAnalysisResult,
       counselingDate: '2026-04-15',
       fullOriginalText: '원문 전체',
       readableStructuredText: '보기 좋은 구조화 텍스트',
